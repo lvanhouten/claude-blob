@@ -22,26 +22,32 @@ if (EMBED) document.body.classList.add('embed');
 const DEFAULTS = {
   speed: 0.35, amp: 0.06, freq: 1.1,    // surface wobble (lower half)
   hop: 0, hopHz: 1, jitter: 0,          // bouncing
-  hammer: 0, sway: 0, wave: 0,          // body/arm motions
-  scan: 0, lookAround: 0, ponder: 0,    // eye behaviours
+  sway: 0, wave: 0,                     // body/arm motions
+  scan: 0, ponder: 0,                   // eye behaviors
   glow: 0, breath: 1, eyesClosed: 0,
   star: 0,                              // 0 = blob, 1 = star
   dizzy: 0,                             // woozy eye-rolling and swaying
   paddle: 0,                            // feet shuffling
   hover: 1,                             // floating off the desk
+  lean: 0,                              // leaning over to reach an arm up high
+  slump: 0,                             // arms hanging limp, asleep
+  sheets: 0,                            // code sheets whizzing past to read
+  write: 0,                             // conjuring code onto blank sheets
+  term: 0,                              // a terminal running a command
+  web: 0,                               // a browser window searching the web
 };
 
 const STATES = {
   idle: {},
   thinking: { speed: 1.0, amp: 0.08, freq: 1.5, ponder: 1, breath: 0.6 },
-  running: { speed: 2.4, amp: 0.08, freq: 2.4, hop: 0.1, hopHz: 2.8, jitter: 0.015, paddle: 1 },
-  building: { speed: 1.2, amp: 0.08, freq: 1.8, hammer: 1, paddle: 0.5 },
-  reading: { speed: 0.6, amp: 0.05, scan: 1, sway: 0.6 },
-  searching: { speed: 0.9, amp: 0.06, lookAround: 1 },
+  running: { speed: 2.4, amp: 0.08, freq: 2.4, hop: 0.05, hopHz: 2.8, jitter: 0.008, paddle: 1, term: 1 },
+  building: { speed: 1.2, amp: 0.08, freq: 1.8, write: 1, paddle: 0.5 },
+  reading: { speed: 0.6, amp: 0.05, scan: 1, sheets: 1 },
+  searching: { speed: 0.9, amp: 0.06, web: 1 },
   delegating: { speed: 1.6, amp: 0.12, freq: 2.0, hop: 0.06, hopHz: 1.3, paddle: 0.7 },
-  attention: { speed: 1.4, amp: 0.08, hop: 0.32, hopHz: 1.7, wave: 1, glow: 1, paddle: 1 },
+  attention: { speed: 1.4, amp: 0.08, hopHz: 1.7, wave: 1, lean: 1, paddle: 0.5 },
   done: { speed: 0.7, amp: 0.03, star: 1 },
-  sleeping: { speed: 0.15, amp: 0.025, breath: 2.2, eyesClosed: 1, hover: 0 },
+  sleeping: { speed: 0.15, amp: 0.025, breath: 2.2, eyesClosed: 1, hover: 0, slump: 1 },
   dizzy: { speed: 1.0, amp: 0.1, freq: 1.6, dizzy: 1 },
 };
 
@@ -71,6 +77,30 @@ const TOOL_STATES = {
 const SLEEP_AFTER_MS = 5 * 60 * 1000;
 const DONE_HOLD_MS = 4500;
 const DIZZY_MS = 3200; // spin plus the woozy part
+// Needs you: he leans away from his waving arm, stretching tall to reach it up
+// as high as he can without jumping. If nobody answers
+// he gets louder: after calm seconds both arms wave, bigger, and he starts to
+// hop, reaching full volume ramp seconds later; from glowAt he glows with
+// ripples too. The gallery replays it every loop seconds, or holds one stage
+// with ?attn=calm|loud|glow (at the times in ATTN_STAGES).
+// tilt: how far he leans over; stretch: how much taller he gets; reach: how
+// much higher the waving arm goes
+const ATTN = { calm: 3, ramp: 3, glowAt: 7, loop: 11, hop: 0.32, tilt: 0.2, stretch: 0.06, reach: 0.08 };
+let attnLoud = 0; // 0 polite .. 1 full volume
+// Falling asleep: a big yawn (stretching tall, arms up, eyes squeezed shut), a
+// squish as it ends, then his eyes drift slowly closed and his arms go limp
+// (slump, shortened by shrink so they hang rather than stretch) as he
+// settles. Times are seconds from when he gets sleepy. The gallery replays it
+// every loop seconds with ?doze=1; without it, he's shown already asleep.
+const DOZE = { yawn: 1.3, end: 3.2, loop: 7, stretch: 0.13, arms: 0.85, slump: 0.32, shrink: 0.35 };
+const DOZE_LOOP = params.get('doze') === '1';
+const doze = { squash: 0, pitch: 0, arms: 0, closed: null, done: true, settle: 1 }; // settle: 0..1 into the slump
+const ATTN_STAGES = { calm: 1, loud: ATTN.calm + ATTN.ramp, glow: ATTN.glowAt + 2 };
+const ATTN_STAGE = ATTN_STAGES[params.get('attn')];
+// Thinking: glance is how long he looks to each side; squish the "hmm" when he
+// switches; tilt how far his head leans toward where he's looking
+const THINK = { glance: 1.4, squish: 0.05, tilt: 0.08 };
+let ponderSide = -1; // -1 looking up-left, 1 up-right, eased between
 
 // Jello poke: a ripple runs out from the poke point while the whole body
 // rocks, both dying away. freq is the ripple's speed, spread how tight it is.
@@ -164,17 +194,48 @@ function starEdge(a) {
   return (STAR.outer * STAR.inner * Math.sin(half)) / (STAR.outer * Math.sin(u) + STAR.inner * Math.sin(half - u));
 }
 // Pac-Man ghost body: the sphere's upper half stays a dome, the lower half is
-// unrolled into straight walls ending in a scalloped hem of stubby feet, and the
-// last bit tucks under as a hidden underside.
-// wallDy: how far down the sphere (in dy) the straight wall runs before the underside
-const GHOST = { n: 5, box: 2.2, taper: 0.16, wallDy: 0.92, flare: 0.04, bulge: 0.1, scallop: 0.26, cap: 0.14 };
+// unrolled into straight walls ending in a scalloped hem of doughy feet, and
+// the last bit tucks under as a hidden underside.
+// wallDy: how far down the sphere (in dy) the straight wall runs before the
+// underside. Higher puts the hem on a narrower ring of the sphere, with fewer
+// vertices around it; the points between feet then jump from vertex to vertex
+// as the feet roll, and flicker.
+// n/scallop: how many feet, and how deep the notches between them go.
+// arc: each foot is a rounded arc butting into the next at a point; lower is
+// rounder, with a sharper point. tip rounds off the very point, so the mesh
+// doesn't fold there.
+// bulge/rise: how much each foot puffs out, and how low on the wall the
+// puffing starts (higher = only near the hem).
+// roll: the radius of the thick, rounded lip the hem curls under around,
+// which takes up rollShare of the underside's mesh. cap: how high the middle
+// of the underside sits.
+const GHOST = {
+  n: 5, box: 2.2, taper: 0.16, wallDy: 0.82, bulge: 0.07, rise: 2,
+  scallop: 0.3, arc: 0.45, tip: 0.3, roll: 0.12, rollShare: 0.4, cap: 0.24,
+};
+
+// How far down the hem reaches at a point x (radians) along its run of feet:
+// 1 at the bottom of a foot, 0 at the top of the notch between two.
+function hemLobe(x) {
+  const s = (((x / (Math.PI * 2)) % 1) + 1) % 1;
+  const f = (1 - (2 * s - 1) ** 2) ** GHOST.arc;
+  // A smooth corner instead of a hard V where two feet meet.
+  const t = GHOST.tip;
+  return (Math.sqrt(f * f + t * t) - t) / (Math.sqrt(1 + t * t) - t);
+}
 const CAP_HL = Math.sqrt(1 - GHOST.wallDy ** 2); // sphere width where the wall ends
 let hemPhase = 0; // rolls the feet around the hem
+// The most the skirt's wobble can reach, whatever the state asks for: amp is
+// how far it bulges, freq how small and lumpy the bulges get. hemFade: how
+// much of it dies away toward the hem.
+const WOBBLE = { amp: 0.065, freq: 1.3, hemFade: 0.85 };
 
 // radius: size of the skin patch each arm grows from
 // cap: fraction of the patch that blends; the rest moves out together as the tip
 // reach: how much farther an arm stretches when he reaches out to make or catch a helper
-const ARMS = { len: 0.2, radius: 0.3, cap: 0.5, tip: 0.6, droop: 0.04, bend: 0.22, reach: 0.38, y: -0.3, z: 0.2 };
+// bendMax: the most lift that still bends the tip further up; past it a raised
+// arm would taper to a point
+const ARMS = { len: 0.2, radius: 0.3, cap: 0.5, tip: 0.6, droop: 0.04, bend: 0.22, reach: 0.38, y: -0.3, z: 0.2, under: 1.5, bendMax: 0.35 };
 // Shoulders stay put on the body; only the direction the arm reaches in moves,
 // so the arm pivots at the shoulder and the tip does the waving.
 const armRest = [-1, 1].map((side) => new THREE.Vector3(side, ARMS.y, ARMS.z).normalize());
@@ -196,7 +257,13 @@ function surface(dx, dy, dz, out) {
   const w = dy < 0 ? 1 - hl : 0; // 0 at the equator, 1 at the bottom pole
   // Smooth dome on top; the wobble lives in the skirt.
   const skirt = THREE.MathUtils.smoothstep(w, 0, 0.45);
-  let r = 1 + noise.noise4d(dx * P.freq, dy * P.freq, dz * P.freq, phase) * P.amp * (0.12 + 0.88 * skirt);
+  // Busy states wobble faster, but no bigger or lumpier than WOBBLE allows, so
+  // the feet stay tucked in. The wobble also fades out toward the hem: a bump
+  // right at the edge where the wall turns under makes a little ledge that
+  // catches the light.
+  const freq = Math.min(P.freq, WOBBLE.freq);
+  const calm = 1 - WOBBLE.hemFade * THREE.MathUtils.smoothstep(-dy / GHOST.wallDy, 0.4, 1);
+  let r = 1 + noise.noise4d(dx * freq, dy * freq, dz * freq, phase) * Math.min(P.amp, WOBBLE.amp) * (0.12 + 0.88 * skirt) * calm;
   // Jello ripple spreading out from where he was poked.
   if (jiggleNow > 0.001) {
     const dist = 1 - (dx * jiggle.origin.x + dy * jiggle.origin.y + dz * jiggle.origin.z);
@@ -215,23 +282,40 @@ function surface(dx, dy, dz, out) {
   } else {
     // Feet roll clockwise around the hem (seen from above), faster when busy.
     const ang = Math.atan2(dz, dx);
-    const lobe = 0.5 + 0.5 * Math.cos(GHOST.n * ang + Math.PI - hemPhase);
-    const hem = -SHAPE.floor - GHOST.scallop * (1 - lobe) ** 2.5; // feet reach the floor
+    const lobe = hemLobe(GHOST.n * ang + Math.PI - hemPhase);
+    const hem = -SHAPE.floor - GHOST.scallop * (1 - lobe); // feet reach the floor
     const ux = hl > 1e-6 ? dx / hl : 0;
     const uz = hl > 1e-6 ? dz / hl : 0;
     // Height down the wall follows dy itself, the same measure the dome uses,
     // so rows of the mesh stay evenly spaced across the seam (measuring it from
     // the width bunched them up just under it and left a crease).
     let rad;
+    // The wall stops short of the hem by the roll's radius, and curls under
+    // around it instead.
+    const roll = GHOST.roll;
     if (-dy < GHOST.wallDy) {
       const f = -dy / GHOST.wallDy;
-      rad = (1 + GHOST.flare * f * f + GHOST.bulge * lobe * f ** 4) * r; // bulbous feet
-      y = -f * hem;
+      rad = (1 + GHOST.bulge * lobe * f ** GHOST.rise) * r; // doughy feet
+      y = -f * (hem - roll);
     } else {
-      // The underside: tucks in from the hem to the bottom pole.
+      // The underside: tucks in from the hem to the bottom pole. It rises to
+      // the same height in the middle all the way round; rising a fixed amount
+      // from each point of the hem left steep fins inside the notches, which
+      // caught the light.
       const c = 1 - hl / CAP_HL;
-      rad = (1 + GHOST.flare + GHOST.bulge * lobe) * r * (1 - c);
-      y = -hem + Math.sqrt(c) * GHOST.cap;
+      const edge = (1 + GHOST.bulge * lobe) * r;
+      const middle = SHAPE.floor + GHOST.scallop + GHOST.cap;
+      if (c < GHOST.rollShare) {
+        // A doughy lip: the wall curls round a quarter circle to a flat bottom...
+        const a = (c / GHOST.rollShare) * Math.PI / 2;
+        rad = edge - roll + roll * Math.cos(a);
+        y = -(hem - roll) - roll * Math.sin(a);
+      } else {
+        // ...then the underside runs on inward and curves gently up to the middle.
+        const u = (c - GHOST.rollShare) / (1 - GHOST.rollShare);
+        rad = (edge - roll) * (1 - u);
+        y = -hem + (middle + hem) * u * u;
+      }
     }
     x = ux * rad;
     z = uz * rad;
@@ -251,7 +335,10 @@ function surface(dx, dy, dz, out) {
   if (armsOn) {
     for (let i = 0; i < 2; i++) {
       const s = armAnchors[i];
-      const d = Math.hypot(x - s.x, y - s.y, z - s.z);
+      // The patch reaches less far down, so it can't drag a passing foot out
+      // with it.
+      const below = y < s.y ? ARMS.under : 1;
+      const d = Math.hypot(x - s.x, (y - s.y) * below, z - s.z);
       if (d >= ARMS.radius) continue;
       // The middle of the patch moves out as a whole, so the arm has a body
       // rather than pinching to a point...
@@ -265,7 +352,7 @@ function surface(dx, dy, dz, out) {
       // Reaching along the lifted direction tilts the arm; the extra rise grows
       // toward the tip, bending it like a wave from the shoulder.
       const a = armDirs[i];
-      const bend = armLift[i] * ARMS.bend * b * b * (armLen / ARMS.len);
+      const bend = Math.min(armLift[i], ARMS.bendMax) * ARMS.bend * b * b * (armLen / ARMS.len);
       x += a.x * L;
       y += a.y * L - ARMS.droop * b * b + bend;
       z += a.z * L;
@@ -297,7 +384,7 @@ function surface(dx, dy, dz, out) {
   return out.set(x, y, z);
 }
 
-let geo = new THREE.IcosahedronGeometry(1, EMBED ? 26 : 36);
+let geo = new THREE.IcosahedronGeometry(1, EMBED ? 26 : 48);
 geo.deleteAttribute('normal');
 geo.deleteAttribute('uv');
 geo = mergeVertices(geo);
@@ -411,8 +498,10 @@ const blobMesh = new THREE.Mesh(geo, bodyMat);
 body.add(blobMesh);
 
 
-// Eyes: glossy black ovals with two white catch-lights
-const eyeMat = new THREE.MeshPhysicalMaterial({ color: '#0d0705', roughness: 0.15, clearcoat: 1, clearcoatRoughness: 0.05 });
+// Eyes: black ovals with two white catch-lights
+// Matte, with no reflections of the room, so the only shine is the two painted
+// catch-lights; glossy eyes picked up extra glints that cluttered them.
+const eyeMat = new THREE.MeshStandardMaterial({ color: '#0d0705', roughness: 0.9, envMapIntensity: 0 });
 const sparkleMat = new THREE.MeshBasicMaterial({ color: '#ffffff' });
 const eyes = [-1, 1].map((side) => {
   const g = new THREE.Group();
@@ -468,6 +557,498 @@ for (const [x, y] of [[0.42, -0.2], [0.49, -0.15], [0.48, -0.25], [0.55, -0.2]].
 }
 
 // ---------------------------------------------------------------------------
+// Props: small objects he works with. Each one appears as the matching
+// state's param (P.sheets, ...) eases up, and shrinks away as it eases back
+// down.
+// ---------------------------------------------------------------------------
+
+// Reading, editing and running commands: sheets of code (or a terminal) whizz
+// in from the side one after another and hang in front of him. Reading, he
+// reads down each one. Editing, it arrives blank and his arm passes down over
+// it from top to bottom, the code filling in behind his hand. Running a
+// command, a terminal types the command and prints its output while he taps
+// away. Searching the web, a browser window types a query, thinks, and shows
+// results that he skims. Then he flicks it away and the next arrives.
+// in/read/write/run/web/out: seconds for each part of one sheet's visit
+// at: where a sheet hangs in front of him; from: how far off to the side it
+// flies in from and out to
+const SHEET = { w: 0.62, h: 0.74, in: 0.45, read: 2.3, write: 2.4, run: 2.6, web: 2.8, out: 0.35, at: [0.05, -0.3, 1.3], tilt: -0.25, from: 3.2, lines: 7 };
+const SHEET_PX = { w: 124, h: 148, fold: 26 };
+// The writing pass: his arm winds up above the page (top), sweeps down to the
+// bottom of it over the middle of the visit, then drops back to rest.
+// windup/start/end: fractions of the writing time
+const SWEEP = { top: 0.7, bottom: -0.1, windup: 0.12, start: 0.18, end: 0.85 };
+
+// The code on a page: indented runs of colored "words", the same every time
+// for a given seed.
+const CODE_COLORS = ['#e0703c', '#3e7486', '#9a6bb0', '#c9a888', '#c9a888'];
+function codeWords(seed) {
+  let r = seed * 9301 + 49297;
+  const rand = () => ((r = (r * 9301 + 49297) % 233280) / 233280);
+  const words = [];
+  let indent = 0;
+  for (let k = 0; k < SHEET.lines; k++) {
+    const y = 18 + k * 18;
+    indent = Math.max(0, Math.min(2, indent + Math.floor(rand() * 3) - 1));
+    let x = 12 + indent * 12;
+    const end = (k === 0 ? SHEET_PX.w - SHEET_PX.fold - 6 : 112) - rand() * 30;
+    while (x < end) {
+      const len = Math.min(end - x, 10 + rand() * 24);
+      words.push({ line: k, x, y, len, color: CODE_COLORS[Math.floor(rand() * CODE_COLORS.length)] });
+      x += len + 5;
+    }
+  }
+  return words;
+}
+const writeWords = [11, 12, 13, 14].map(codeWords);
+
+// Draws a page with the top-right corner folded and its code filled in down
+// to `reveal` (0..1 from top to bottom). Each line runs in quickly from left
+// to right as the fill reaches it.
+function drawSheet(g, words, reveal = 1) {
+  const { w, h, fold } = SHEET_PX;
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = '#fff4e0';
+  g.beginPath();
+  g.moveTo(0, 0);
+  g.lineTo(w - fold, 0);
+  g.lineTo(w, fold);
+  g.lineTo(w, h);
+  g.lineTo(0, h);
+  g.fill();
+  g.fillStyle = '#e8cfae';
+  g.beginPath();
+  g.moveTo(w - fold, 0);
+  g.lineTo(w - fold, fold);
+  g.lineTo(w, fold);
+  g.fill();
+  for (const wd of words) {
+    const across = THREE.MathUtils.clamp(reveal * SHEET.lines - wd.line, 0, 1) * w;
+    const len = Math.min(wd.len, across - wd.x);
+    if (len <= 0) continue;
+    g.fillStyle = wd.color;
+    g.fillRect(wd.x, wd.y, len, 7);
+  }
+}
+
+function sheetCanvas(w = SHEET_PX.w, h = SHEET_PX.h) {
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  // Unlit, so the paper stays bright whichever way the light comes from.
+  const mat = new THREE.MeshBasicMaterial({ map: tex, alphaTest: 0.5, side: THREE.DoubleSide });
+  return { g: c.getContext('2d'), tex, mat };
+}
+
+// Finished pages to read, and one page that gets written on.
+const readPages = [1, 2, 3, 4].map((seed) => {
+  const page = sheetCanvas();
+  drawSheet(page.g, codeWords(seed));
+  return page;
+});
+const writePage = sheetCanvas();
+
+// The terminal: a dark window with a title bar. A command types out after the
+// prompt, then output prints line by line, scrolling up once the window is
+// full, with a blinking cursor at the end.
+// w/h: its size next to a sheet's; px: its canvas size (same aspect)
+const TERM = { w: 0.74, h: 0.56, px: [148, 112], typeSecs: 0.55, lineSecs: 0.16, rows: 6 };
+const termPage = sheetCanvas(...TERM.px);
+function termLines(seed) {
+  let r = seed * 7919 + 104729;
+  const rand = () => ((r = (r * 9301 + 49297) % 233280) / 233280);
+  return Array.from({ length: 24 }, () => ({
+    len: 30 + rand() * 90,
+    color: rand() < 0.2 ? '#6fb3c4' : '#a99aa6',
+  }));
+}
+const termOutput = [1, 2, 3, 4].map(termLines);
+
+// The browser: a light window with a search bar. The query types in, a spinner
+// turns while it loads, then result cards pop in one after another.
+// typeSecs/loadSecs: how long the typing and the spinner take; resultSecs:
+// the gap between results
+const WEB = { w: 0.74, h: 0.6, px: [148, 120], typeSecs: 0.5, loadSecs: 0.45, resultSecs: 0.3, results: 3 };
+const webPage = sheetCanvas(...WEB.px);
+let webTyping = 0; // 1 while the query is typing, for his tapping arms
+let webSkim = 0;   // 0..1 down the results, for his eyes
+function drawBrowser(g, t, seed) {
+  const [w, h] = WEB.px;
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = '#fff4e0';
+  g.beginPath();
+  g.roundRect(0, 0, w, h, 10);
+  g.fill();
+  g.fillStyle = '#e8cfae';
+  g.beginPath();
+  g.roundRect(0, 0, w, 16, [10, 10, 0, 0]);
+  g.fill();
+  // An outline, so the pale window stands out against his cream side.
+  g.strokeStyle = '#b58f6c';
+  g.lineWidth = 3;
+  g.beginPath();
+  g.roundRect(1.5, 1.5, w - 3, h - 3, 9);
+  g.stroke();
+  ['#e0703c', '#f0b24a', '#6fae8a'].forEach((c, k) => {
+    g.fillStyle = c;
+    g.beginPath();
+    g.arc(12 + k * 11, 8, 3.5, 0, Math.PI * 2);
+    g.fill();
+  });
+  // Search bar, with a little magnifier and the query typing in.
+  g.fillStyle = '#ffffff';
+  g.strokeStyle = '#c9a888';
+  g.lineWidth = 2;
+  g.beginPath();
+  g.roundRect(10, 24, w - 20, 16, 8);
+  g.fill();
+  g.stroke();
+  g.strokeStyle = '#3e7486';
+  g.beginPath();
+  g.arc(20, 31, 3.5, 0, Math.PI * 2);
+  g.moveTo(22.5, 33.5);
+  g.lineTo(25.5, 36.5);
+  g.stroke();
+  const typed = THREE.MathUtils.clamp(t / WEB.typeSecs, 0, 1);
+  g.fillStyle = '#9a6bb0';
+  g.fillRect(31, 29, (60 + (seed % 3) * 12) * typed, 5);
+  const loaded = t - WEB.typeSecs - WEB.loadSecs;
+  if (t > WEB.typeSecs && loaded < 0) {
+    // Loading: three dots chasing around.
+    for (let k = 0; k < 3; k++) {
+      const a = t * 9 + k * 2.1;
+      g.fillStyle = k ? '#c9a888' : '#e0703c';
+      g.beginPath();
+      g.arc(w / 2 + Math.cos(a) * 8, 76 + Math.sin(a) * 8, 3, 0, Math.PI * 2);
+      g.fill();
+    }
+    return;
+  }
+  for (let k = 0; k < WEB.results; k++) {
+    const pop = THREE.MathUtils.clamp((loaded - k * WEB.resultSecs) / 0.15, 0, 1);
+    if (pop <= 0) break;
+    const y = 50 + k * 22;
+    const slide = (1 - pop) * 10;
+    g.globalAlpha = pop;
+    g.fillStyle = '#3e7486';
+    g.fillRect(12 + slide, y, 50 + ((seed + k) % 3) * 16, 6);
+    g.fillStyle = '#c9a888';
+    g.fillRect(12 + slide, y + 9, 110, 4);
+    g.fillRect(12 + slide, y + 15, 80 + ((seed * 3 + k) % 4) * 8, 4);
+    g.globalAlpha = 1;
+  }
+}
+function drawTerminal(g, t, output) {
+  const [w, h] = TERM.px;
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = '#2b2230';
+  g.beginPath();
+  g.roundRect(0, 0, w, h, 10);
+  g.fill();
+  g.fillStyle = '#3d3243';
+  g.beginPath();
+  g.roundRect(0, 0, w, 16, [10, 10, 0, 0]);
+  g.fill();
+  ['#e0703c', '#f0b24a', '#6fae8a'].forEach((c, k) => {
+    g.fillStyle = c;
+    g.beginPath();
+    g.arc(12 + k * 11, 8, 3.5, 0, Math.PI * 2);
+    g.fill();
+  });
+  const rowH = 14;
+  const top = 24;
+  // The command line scrolls off the top with everything else once the
+  // output fills the window.
+  const printed = Math.max(0, Math.floor((t - TERM.typeSecs - 0.15) / TERM.lineSecs));
+  const rows = [{ prompt: true }, ...output.slice(0, printed)];
+  const first = Math.max(0, rows.length - TERM.rows);
+  let y = top;
+  let cursorX = 0;
+  for (let k = first; k < rows.length; k++) {
+    const row = rows[k];
+    if (row.prompt) {
+      g.fillStyle = '#e0703c';
+      g.font = 'bold 13px monospace';
+      g.fillText('>', 8, y + 5);
+      const typed = THREE.MathUtils.clamp(t / TERM.typeSecs, 0, 1) * 70;
+      g.fillStyle = '#ffe6bd';
+      g.fillRect(22, y - 3, typed, 6);
+      cursorX = 22 + typed + 3;
+    } else {
+      g.fillStyle = row.color;
+      g.fillRect(8, y - 3, row.len, 6);
+      cursorX = 8 + row.len + 3;
+    }
+    y += rowH;
+  }
+  if (Math.floor(t * 3) % 2 === 0) {
+    g.fillStyle = '#ffe6bd';
+    g.fillRect(cursorX, y - rowH - 5, 6, 10);
+  }
+}
+const sheet = new THREE.Mesh(new THREE.PlaneGeometry(SHEET.w, SHEET.h), readPages[0].mat);
+sheet.visible = false;
+body.add(sheet);
+
+let sheetT = 0;     // seconds into the current sheet's visit
+let sheetCount = 0; // which sheet this is, to vary the page
+let readLine = 0;   // 0..1 down the page, for his eyes while reading
+let writeLine = 0;  // 0..1 down the page, how far the code has filled in
+let sheetFlick = 0; // 0..1, his arm swatting the sheet away
+const writeSweep = { on: 0, lift: 0 }; // his writing arm: how far into the pass, and its height
+
+// Where his eyes are while reading `lines` lines, `f` (0..1) of the way
+// through: along runs 0..1 across the current line, then snaps back.
+const reading = { along: 0, line: 0 };
+function readAlong(f, lines) {
+  const at = Math.min(f * lines, lines - 0.001);
+  const u = at % 1;
+  reading.along = u < 0.8 ? u / 0.8 : 1 - (u - 0.8) / 0.2;
+  reading.line = Math.floor(at);
+}
+
+function updateSheet(step) {
+  const pick = { read: P.sheets, write: P.write, run: P.term, web: P.web };
+  const mode = Object.keys(pick).reduce((a, b) => (pick[b] > pick[a] ? b : a));
+  const writing = mode === 'write';
+  const show = Math.max(P.sheets, P.write, P.term, P.web) * Math.max(0, 1 - P.star);
+  sheet.visible = show > 0.02;
+  sheetFlick = 0;
+  writeSweep.on = 0;
+  if (!sheet.visible) { sheetT = 0; return; }
+  const hold = SHEET[mode];
+  const cycle = SHEET.in + hold + SHEET.out;
+  sheetT += step;
+  if (sheetT > cycle) {
+    sheetT -= cycle;
+    sheetCount++;
+  }
+  const page = { run: termPage, web: webPage, write: writePage }[mode] ?? readPages[sheetCount % readPages.length];
+  sheet.material = page.mat;
+  let x = 0, lean = 0, stretch = 0, progress = 0;
+  if (sheetT < SHEET.in) {
+    // Whizzes in from the right, overshoots and settles.
+    const u = sheetT / SHEET.in;
+    x = (1 - easeOutOvershoot(u)) * SHEET.from;
+    lean = (1 - u) * 0.5;
+    stretch = (1 - u) * 0.6;
+  } else if (sheetT < SHEET.in + hold) {
+    progress = (sheetT - SHEET.in) / hold;
+  } else {
+    // A small pull back to the right as he winds up, then it zooms off left.
+    const u = (sheetT - SHEET.in - hold) / SHEET.out;
+    x = -(u * u * (1 + 2.2 * u) - 0.25 * Math.sin(u * Math.PI)) * SHEET.from / 3.2;
+    lean = -u * 0.5;
+    stretch = u * 0.8;
+    sheetFlick = Math.sin(Math.min(1, u * 1.4) * Math.PI);
+    progress = 1;
+  }
+  readLine = progress;
+  const bob = Math.sin(time * 1.6) * 0.02;
+  sheet.position.set(SHEET.at[0] + x, SHEET.at[1] + bob, SHEET.at[2]);
+  sheet.rotation.set(SHEET.tilt, 0, lean);
+  const size = { run: TERM, web: WEB }[mode];
+  const [sx, sy] = size ? [size.w / SHEET.w, size.h / SHEET.h] : [1, 1];
+  sheet.scale.set((1 + stretch) * show * sx, (1 - stretch * 0.3) * show * sy, 1);
+  const since = Math.max(0, sheetT - SHEET.in);
+  if (mode === 'run') {
+    drawTerminal(page.g, since, termOutput[sheetCount % termOutput.length]);
+    page.tex.needsUpdate = true;
+  }
+  webTyping = 0;
+  if (mode === 'web') {
+    drawBrowser(page.g, since, sheetCount);
+    page.tex.needsUpdate = true;
+    webTyping = since > 0 && since < WEB.typeSecs && progress < 1 ? 1 : 0;
+    const loadedAt = WEB.typeSecs + WEB.loadSecs;
+    webSkim = THREE.MathUtils.clamp((since - loadedAt) / (SHEET.web - loadedAt), 0, 1);
+  }
+  if (!writing) return;
+
+  // His arm rises to the top of the page, then passes down it with the code
+  // filling in just behind, and drops back to rest at the end.
+  const pass = THREE.MathUtils.clamp((progress - SWEEP.start) / (SWEEP.end - SWEEP.start), 0, 1);
+  writeLine = pass * pass * (3 - 2 * pass);
+  const raised = THREE.MathUtils.smoothstep(progress, 0, SWEEP.windup) * (1 - THREE.MathUtils.smoothstep(progress, SWEEP.end, 1));
+  writeSweep.on = raised * P.write;
+  writeSweep.lift = SWEEP.top + (SWEEP.bottom - SWEEP.top) * writeLine;
+  drawSheet(page.g, writeWords[sheetCount % writeWords.length], Math.max(0, writeLine * 1.08 - 0.04));
+  page.tex.needsUpdate = true;
+}
+
+// Thinking: a little thought bubble pops up beside his head with three dots
+// bouncing in a wave inside, like a chat app's "typing…". ?bubble=0 hides it.
+// at: where it sits (in his space); size: its width; bob: how far the dots
+// hop; trail: the two small circles leading back to his head
+const BUBBLE = { at: [0.95, 1.37], size: 0.66, px: [112, 66], bob: 4.5, hz: 1.4, popSecs: 0.35, trail: [[-0.46, -0.31, 0.04], [-0.35, -0.21, 0.075]] };
+const BUBBLE_ON = params.get('bubble') !== '0';
+
+const bubbleCanvas = document.createElement('canvas');
+[bubbleCanvas.width, bubbleCanvas.height] = BUBBLE.px;
+const bubbleG = bubbleCanvas.getContext('2d');
+const bubbleTex = new THREE.CanvasTexture(bubbleCanvas);
+bubbleTex.colorSpace = THREE.SRGBColorSpace;
+// alphaTest rather than blending: a half-transparent edge shows up as a dark
+// fringe over the transparent window.
+const bubble = new THREE.Sprite(new THREE.SpriteMaterial({ map: bubbleTex, alphaTest: 0.5 }));
+bubble.visible = false;
+root.add(bubble);
+const bubbleTrail = BUBBLE.trail.map(() => {
+  const d = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture(), alphaTest: 0.5 }));
+  d.visible = false;
+  root.add(d);
+  return d;
+});
+let bubbleT = 0;
+
+function dotTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff4e0';
+  g.strokeStyle = '#b58f6c';
+  g.lineWidth = 6;
+  g.beginPath();
+  g.arc(32, 32, 27, 0, Math.PI * 2);
+  g.fill();
+  g.stroke();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function drawBubble(t) {
+  const [w, h] = BUBBLE.px;
+  const g = bubbleG;
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = '#fff4e0';
+  g.strokeStyle = '#b58f6c';
+  g.lineWidth = 5;
+  g.beginPath();
+  g.roundRect(4, 4, w - 8, h - 8, (h - 8) / 2);
+  g.fill();
+  g.stroke();
+  // Three dots hop in turn, each a little after the one before.
+  for (let k = 0; k < 3; k++) {
+    const hop = Math.max(0, Math.sin(t * BUBBLE.hz * Math.PI * 2 - k * 0.9));
+    g.fillStyle = ['#c9a888', '#e0703c', '#c9a888'][k];
+    g.beginPath();
+    g.arc(w / 2 + (k - 1) * 24, h / 2 + 3 - hop * BUBBLE.bob * 2, 7.5, 0, Math.PI * 2);
+    g.fill();
+  }
+  bubbleTex.needsUpdate = true;
+}
+
+function updateBubble(step) {
+  const show = BUBBLE_ON ? P.ponder * Math.max(0, 1 - P.star) : 0;
+  bubbleT = show > 0.02 ? bubbleT + step : 0;
+  const on = show > 0.02;
+  bubble.visible = on;
+  bubbleTrail.forEach((d) => { d.visible = on; });
+  if (!on) return;
+  // The trail puffs up first, then the bubble pops in after it.
+  const pop = (delay) => Math.max(0.001, easeOutBack(THREE.MathUtils.clamp((bubbleT - delay) / BUBBLE.popSecs, 0, 1)));
+  const [x, y] = BUBBLE.at;
+  const bx = body.position.x + x;
+  const by = body.position.y + y + Math.sin(time * 1.8) * 0.02;
+  bubbleTrail.forEach((d, k) => {
+    const [dx, dy, r] = BUBBLE.trail[k];
+    d.position.set(bx + dx, by + dy, 0.4);
+    d.scale.setScalar(r * 2 * pop(k * 0.12) * show);
+  });
+  const s = pop(0.24) * show;
+  bubble.position.set(bx, by, 0.4);
+  bubble.scale.set(BUBBLE.size * s, BUBBLE.size * (BUBBLE.px[1] / BUBBLE.px[0]) * s, 1);
+  drawBubble(bubbleT);
+}
+
+// Asleep: Z's drift up from his head one after another, swaying side to side
+// and growing as they rise, then shrink away near the top. Each one moves off
+// quickly and slows as it rises, so the next one has room to appear.
+// every: seconds between Z's; life: how long each one lasts; from/to: where
+// they start and end up (in his space); size: smallest and largest
+const ZS = { every: 1.4, life: 3.6, from: [0.4, 0.85], to: [0.95, 1.45], size: [0.12, 0.28], sway: 0.08 };
+
+function zTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  g.font = '900 56px "Arial Black", Arial, sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.lineJoin = 'round';
+  g.lineWidth = 10;
+  g.strokeStyle = '#b58f6c';
+  g.strokeText('z', 32, 30);
+  g.fillStyle = '#fff4e0';
+  g.fillText('z', 32, 30);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+const zTex = zTexture();
+const zs = Array.from({ length: Math.ceil(ZS.life / ZS.every) }, () => {
+  const z = new THREE.Sprite(new THREE.SpriteMaterial({ map: zTex, alphaTest: 0.5 }));
+  z.visible = false;
+  root.add(z);
+  return z;
+});
+let zT = 0;
+
+function updateZs(step) {
+  const on = state === 'sleeping' && doze.done && P.star < 0.5;
+  zT = on ? zT + step : 0;
+  zs.forEach((z, k) => {
+    // Each Z takes its turn; age is how far through its life it is.
+    const age = (zT - k * ZS.every) % (zs.length * ZS.every);
+    const u = age / ZS.life;
+    z.visible = on && zT > k * ZS.every && u < 1;
+    if (!z.visible) return;
+    const grow = THREE.MathUtils.lerp(ZS.size[0], ZS.size[1], u);
+    const pop = Math.min(1, u / 0.12) * (u > 0.85 ? 1 - (u - 0.85) / 0.15 : 1);
+    const [x0, y0] = ZS.from;
+    const [x1, y1] = ZS.to;
+    const rise = 1 - (1 - u) ** 2;
+    z.position.set(
+      body.position.x + THREE.MathUtils.lerp(x0, x1, rise) + Math.sin(u * Math.PI * 3) * ZS.sway,
+      body.position.y + THREE.MathUtils.lerp(y0, y1, rise),
+      0.4,
+    );
+    z.scale.setScalar(Math.max(0.001, grow * 2 * pop));
+    z.material.rotation = Math.sin(u * Math.PI * 3) * 0.3;
+  });
+}
+
+// Fills in `doze` for this frame: how much the yawn squashes, tips and lifts
+// his arms, and how closed his eyes are (null when sleep takes over).
+function updateDoze(now) {
+  doze.squash = doze.pitch = doze.arms = 0;
+  doze.closed = null;
+  doze.done = true;
+  doze.settle = 1;
+  if (state !== 'sleeping') return;
+  let t = (now - stateSince) / 1000;
+  if (LOCKED === 'sleeping') t = DOZE_LOOP ? t % DOZE.loop : DOZE.end;
+  if (t >= DOZE.end) return;
+  doze.done = false;
+  doze.settle = THREE.MathUtils.smoothstep(t, DOZE.yawn, DOZE.end);
+  const pulse = (a, b) => Math.sin(Math.PI * THREE.MathUtils.clamp((t - a) / (b - a), 0, 1));
+  // The yawn: up tall with his arms stretched out, eyes screwed shut...
+  const yawn = pulse(0, DOZE.yawn);
+  doze.squash = -DOZE.stretch * yawn;
+  doze.arms = DOZE.arms * yawn;
+  doze.pitch = -0.06 * yawn;
+  // ...landing in a squish.
+  doze.squash += 0.05 * pulse(DOZE.yawn, DOZE.yawn + 0.3);
+  // Eyes: screwed shut for the yawn, open halfway after it, then drifting
+  // closed.
+  const closed = t < DOZE.yawn ? 0.3 + 0.7 * yawn : 0.5;
+  doze.closed = THREE.MathUtils.lerp(closed, 1, THREE.MathUtils.smoothstep(t, DOZE.yawn + 0.2, DOZE.end));
+}
+
+// ---------------------------------------------------------------------------
 // Helpers: each running subagent is a mini-me that circles him until it
 // finishes. He makes them on purpose: crouches with effort, reaches out an arm,
 // a bulb swells at its tip and pinches off. When one finishes he reaches out,
@@ -479,8 +1060,28 @@ for (const [x, y] of [[0.42, -0.2], [0.49, -0.15], [0.48, -0.25], [0.55, -0.2]].
 const MINION = { scale: 0.3, rx: 1.4, rz: 0.9, y: 0.3, tilt: 0.45, speed: 0.8, inSecs: 1.1, maxAgeMs: 30 * 60 * 1000 };
 // Gesture timings, in seconds from the start of the gesture.
 const BUD = { crouch: 0.35, pinch: 0.85, end: 1.4 };
-// contact: how far out on the ring (as a fraction) the charge meets his side
-const CATCH = { windup: 0.5, hit: 0.85, end: 1.2, contact: 0.5 };
+// A finished helper backs out, loops up and over his head with a somersault,
+// and zooms down onto the top of it. Rising above his head first means you
+// see it come home even when it starts out behind him.
+// rise: how high above where it wound up the loop climbs first; apex: the top
+// of the loop over his head (x is pulled toward the middle by pull); land:
+// where on his head it lands, as a direction from his middle
+const CATCH = { windup: 0.45, hit: 1.35, end: 1.75, rise: 0.9, apex: [0, 1.75, 0.7], pull: 0.3, land: [0, 1, 0.35] };
+const catchFrom = new THREE.Vector3();
+const catchC1 = new THREE.Vector3();
+const catchC2 = new THREE.Vector3();
+const catchTo = new THREE.Vector3();
+const catchLand = new THREE.Vector3(...CATCH.land).normalize();
+
+// A point u (0..1) along the cubic curve a -> b -> c -> d.
+function bezier(a, b, c, d, u, out) {
+  const v = 1 - u;
+  return out.set(0, 0, 0)
+    .addScaledVector(a, v * v * v)
+    .addScaledVector(b, 3 * v * v * u)
+    .addScaledVector(c, 3 * v * u * u)
+    .addScaledVector(d, u * u * u);
+}
 const minions = [];
 let orbitAngle = 0;
 
@@ -619,35 +1220,44 @@ function updateGesture(step) {
       if (t >= BUD.end) gesture = null;
     }
   } else {
-    // Homecoming: the helper backs up to wind up, then charges into his side.
-    // He turns to watch it come and braces for the hit.
+    // Homecoming: the helper backs out to wind up, loops up over his head and
+    // dives onto the top of it. He looks up to watch it come and braces.
     const m = g.minion;
     const a = g.angle;
-    gestureLook = { x: g.side * 0.8, y: 0.25 };
     if (t < CATCH.windup) {
       const u = smooth(t / CATCH.windup);
       polarToRing(a, 1 + 0.4 * u, m.from.y + 0.15 * u, m.group.position);
       m.group.scale.set(MINION.scale * (1 + 0.15 * u), MINION.scale * (1 - 0.2 * u), MINION.scale * (1 + 0.15 * u));
-      gestureSquash = 0.06 * u;
-      reachTarget[g.arm] = 0.35 * u; // arms open a little to receive it
+      gestureSquash = 0.04 * u;
+      gestureLook = { x: g.side * 0.8, y: 0.3 };
     } else if (t < CATCH.hit) {
-      // Charge: accelerating, curving in and down to his side, stretched by speed.
+      // The loop: up and over, somersaulting, speeding up into the dive.
       const u = (t - CATCH.windup) / (CATCH.hit - CATCH.windup);
-      const e = u * u * u;
-      const r = THREE.MathUtils.lerp(1.4, CATCH.contact, e);
-      const y = THREE.MathUtils.lerp(m.from.y + 0.15, body.position.y + 0.05, e) + Math.sin(u * Math.PI) * 0.12;
-      polarToRing(a - g.side * 0.25 * Math.sin(u * Math.PI), r, y, m.group.position);
-      m.group.scale.set(MINION.scale * (1 - 0.12 * u), MINION.scale * (1 + 0.1 * u), MINION.scale * (1 - 0.12 * u));
-      gestureSquash = 0.06;
+      if (!g.looping) {
+        g.looping = true;
+        catchFrom.copy(m.group.position);
+      }
+      surface(catchLand.x, catchLand.y, catchLand.z, catchTo).applyMatrix4(body.matrix);
+      catchTo.y += MINION.scale * 0.6;
+      catchC1.copy(catchFrom).y += CATCH.rise;
+      catchC2.set(catchFrom.x * CATCH.pull + CATCH.apex[0], body.position.y + CATCH.apex[1], CATCH.apex[2]);
+      const e = u * u * (3 - 2 * u) * 0.5 + u * u * 0.5;
+      bezier(catchFrom, catchC1, catchC2, catchTo, e, m.group.position);
+      m.spin = -Math.PI * 2 * smooth(u);
+      // Stretched along its path as it speeds up.
+      const speed = u * u;
+      m.group.scale.set(MINION.scale * (1 - 0.15 * speed), MINION.scale * (1 + 0.2 * speed), MINION.scale * (1 - 0.15 * speed));
+      gestureLook = {
+        x: THREE.MathUtils.clamp(m.group.position.x / 1.4, -1, 1) * 0.8,
+        y: THREE.MathUtils.lerp(0.4, 1, smooth(u)),
+      };
+      gestureSquash = 0.04 + 0.04 * u; // bracing
     } else {
       if (minions.includes(m)) {
-        // Impact: absorbed with a big wobble where it hit.
+        // Impact on top of his head: a jello wobble out from where it landed.
         root.remove(m.group);
         minions.splice(minions.indexOf(m), 1);
-        reachTarget[g.arm] = 0;
-        poke(blobScreen.x + g.side * blobScreen.r * 0.8, blobScreen.y);
-        jiggle.amp = JIGGLE.amp * 1.8;
-        spring.v -= 3;
+        poke(blobScreen.x, blobScreen.y - blobScreen.r * 0.95);
       }
       // Content little squint.
       gestureSquint = 0.7 * Math.sin(Math.min(1, (t - CATCH.hit) / (CATCH.end - CATCH.hit)) * Math.PI);
@@ -694,7 +1304,7 @@ function updateMinions(step, now) {
     }
   }
   for (const m of minions) {
-    m.group.rotation.set(0, Math.sin(time * 1.3 + m.bob) * 0.3, Math.sin(time * 2 + m.bob) * 0.12);
+    m.group.rotation.set(m.spin ?? 0, Math.sin(time * 1.3 + m.bob) * 0.3, Math.sin(time * 2 + m.bob) * 0.12);
   }
   for (let i = 0; i < 2; i++) reach[i] += (reachTarget[i] - reach[i]) * (1 - Math.exp(-step * 10));
 }
@@ -1017,6 +1627,17 @@ function frame(now) {
   // A locked state that times out (like done) replays after a short rest.
   if (STATES[LOCKED] && state !== LOCKED && now - stateSince > 1500) setState(LOCKED);
 
+  updateDoze(now);
+  if (state === 'attention') {
+    let t = (now - stateSince) / 1000;
+    if (LOCKED === 'attention') t = ATTN_STAGE ?? t % ATTN.loop;
+    attnLoud = THREE.MathUtils.smoothstep(t, ATTN.calm, ATTN.calm + ATTN.ramp);
+    target.hop = ATTN.hop * attnLoud;
+    target.glow = THREE.MathUtils.smoothstep(t, ATTN.glowAt, ATTN.glowAt + 1);
+  } else {
+    attnLoud = 0;
+  }
+
   // Ease params toward the current state.
   const k = 1 - Math.exp(-step * 4);
   keyLight.position.lerp(keyTarget, k);
@@ -1060,9 +1681,18 @@ function frame(now) {
     poke(blobScreen.x + (Math.random() - 0.5) * blobScreen.r, blobScreen.y + (Math.random() - 0.5) * blobScreen.r);
   }
 
+  // Thinking: he glances up to one side, then the other, with a little "hmm"
+  // squish each time he switches.
+  const beat = time % (THINK.glance * 2);
+  ponderSide += ((beat < THINK.glance ? -1 : 1) - ponderSide) * (1 - Math.exp(-step * 12));
+  const hmm = Math.max(0, 1 - (beat % THINK.glance) / 0.3);
+
   squash = landing * P.hop * 0.7 - h * 0.3
+    + P.ponder * THINK.squish * Math.sin(hmm * Math.PI)
     + Math.sin(time * 1.7) * 0.018 * P.breath
-    + P.hammer * 0.07 * Math.max(0, Math.sin(time * 9)) ** 2
+    + P.write * 0.025 * Math.max(0, Math.sin(time * 9)) ** 2
+    - P.lean * ATTN.stretch * (1 - attnLoud)
+    + doze.squash
     + jiggleNow * 1.4 * Math.sin(jiggle.t * 13)
     + gestureSquash
     - spring.x * 0.05;
@@ -1079,10 +1709,24 @@ function frame(now) {
   } else {
     lookTarget.set(0, 0);
   }
-  lookTarget.x = THREE.MathUtils.lerp(lookTarget.x, Math.sin(time * 2.2) * 0.7, P.scan);
-  lookTarget.y = THREE.MathUtils.lerp(lookTarget.y, -0.35, P.scan);
-  lookTarget.x = THREE.MathUtils.lerp(lookTarget.x, Math.sin(time * 0.9) > 0 ? 0.9 : -0.9, P.lookAround);
-  lookTarget.x = THREE.MathUtils.lerp(lookTarget.x, 0.45, P.ponder);
+  // Reading: eyes run along a line, snap back for the next one a bit lower,
+  // and start again at the top of each new sheet.
+  readAlong(readLine, 5);
+  lookTarget.x = THREE.MathUtils.lerp(lookTarget.x, -0.6 + 1.2 * reading.along, P.scan);
+  lookTarget.y = THREE.MathUtils.lerp(lookTarget.y, -0.2 - reading.line * 0.13, P.scan);
+  // Searching: eyes on the search bar, then reading down the results once
+  // they've loaded, one line per result.
+  readAlong(webSkim, WEB.results);
+  const loaded = webSkim > 0;
+  lookTarget.x = THREE.MathUtils.lerp(lookTarget.x, loaded ? -0.6 + 1.2 * reading.along : -0.3, P.web);
+  lookTarget.y = THREE.MathUtils.lerp(lookTarget.y, loaded ? -0.3 - reading.line * 0.15 : -0.15, P.web);
+  // Running a command: eyes on the newest output at the bottom of the window.
+  lookTarget.x = THREE.MathUtils.lerp(lookTarget.x, -0.2, P.term);
+  lookTarget.y = THREE.MathUtils.lerp(lookTarget.y, -0.55, P.term);
+  // Writing: eyes follow his hand down the page as the code fills in.
+  lookTarget.x = THREE.MathUtils.lerp(lookTarget.x, -0.15, P.write);
+  lookTarget.y = THREE.MathUtils.lerp(lookTarget.y, 0.1 - writeLine * 0.75, P.write);
+  lookTarget.x = THREE.MathUtils.lerp(lookTarget.x, ponderSide * 0.6, P.ponder);
   lookTarget.y = THREE.MathUtils.lerp(lookTarget.y, 0.6, P.ponder);
   if (gestureLook) lookTarget.set(gestureLook.x, gestureLook.y);
   look.lerp(lookTarget, 1 - Math.exp(-step * 10));
@@ -1093,27 +1737,46 @@ function frame(now) {
   const rock = jiggleNow * 2.2 * Math.sin(jiggle.t * 11);
   // Woozy wobble and eye-rolling turn the same way he spun.
   const woozy = -time * spin.dir;
+  // While he's at a sheet or terminal, or thinking, only his eyes move; his body
+  // stays still.
+  const turnToLook = 1 - 0.85 * Math.max(P.scan, P.write, P.term, P.web, P.ponder);
   body.rotation.set(
-    -look.y * 0.08 + Math.cos(woozy * 4.5) * 0.08 * P.dizzy + rock * 0.4,
-    look.x * 0.22 + spinAngle + Math.sin(time * 0.9) * 0.35 * P.lookAround,
-    Math.sin(time * 1.3) * 0.08 * (P.ponder + P.sway) + Math.sin(woozy * 4.5) * 0.14 * P.dizzy + rock,
+    -look.y * 0.08 * turnToLook + doze.pitch + Math.cos(woozy * 4.5) * 0.08 * P.dizzy + rock * 0.4,
+    look.x * 0.22 * turnToLook + spinAngle,
+    Math.sin(time * 1.3) * 0.08 * P.sway - ponderSide * THINK.tilt * P.ponder + P.lean * ATTN.tilt * (1 - attnLoud)
+      + Math.sin(woozy * 4.5) * 0.14 * P.dizzy + rock,
   );
 
-  // Arms: a lazy idle sway, lifted for waving, pumping while hammering, and
-  // melting back into the body as it becomes a star.
+  // Arms: a lazy idle sway, lifted for waving, and melting back into the
+  // body as it becomes a star.
   armDirs.forEach((a, i) => {
     const side = i ? 1 : -1;
     const lift = Math.sin(time * 1.5 + side) * 0.06 + reach[i] * 0.5
-      + P.wave * (0.45 + 0.3 * Math.sin(time * 10 + side))
-      + P.hammer * 0.35 * Math.max(0, Math.sin(time * 9));
+      + P.wave * (i ? 1 : attnLoud) * (0.45 + (0.22 + 0.08 * attnLoud) * Math.sin(time * (6 + 4 * attnLoud) + side))
+      + (i ? P.lean * ATTN.reach * (1 - attnLoud) : 0)
+      + doze.arms - P.slump * DOZE.slump * doze.settle;
     armLift[i] = lift;
     // Reaching swings the arm forward too, toward you, so it stays in view.
-    a.set(side, ARMS.y + lift, ARMS.z + reach[i] * 1.6).normalize();
+    // Flicking a finished sheet away swings his right arm up and across.
+    const flick = i === 1 ? sheetFlick : 0;
+    // Writing, his left arm passes down over the page as the code fills in.
+    const pass = i === 0 ? writeSweep.on : 0;
+    // Running a command, both arms tap away at the terminal, taking turns.
+    const tap = (P.term + P.web * webTyping) * (0.3 * Math.max(0, Math.sin(time * 15 + (i ? Math.PI : 0))) ** 2 - 0.1) * (1 - sheetFlick);
+    armLift[i] += flick * 0.7 + pass * writeSweep.lift + tap;
+    a.set(
+      side * (1 - 0.6 * flick - 0.3 * pass - 0.2 * P.term),
+      ARMS.y + lift + flick * 0.7 + pass * writeSweep.lift + tap,
+      ARMS.z + reach[i] * 1.6 + flick * 0.8 + pass * 0.6 + 0.5 * P.term,
+    ).normalize();
   });
-  armLen = ARMS.len * Math.max(0, 1 - P.star) * (1 + 0.3 * P.wave);
+  armLen = ARMS.len * Math.max(0, 1 - P.star) * (1 + 0.15 * P.wave) * (1 - DOZE.shrink * P.slump * doze.settle);
   updateArmAnchors();
   body.updateMatrix();
   updateGesture(step);
+  updateSheet(step);
+  updateBubble(step);
+  updateZs(step);
 
   // Deform the surface
   const arr = posAttr.array;
@@ -1128,7 +1791,8 @@ function frame(now) {
   blinkAt -= step;
   if (blinkAt <= 0) { blink = 1; blinkAt = 2.5 + Math.random() * 4; }
   blink = Math.max(0, blink - step * 7);
-  const eyeOpen = Math.max(0.08, (1 - Math.sin(blink * Math.PI)) * (1 - P.eyesClosed * 0.92) * (1 - gestureSquint * 0.65));
+  const closed = doze.closed ?? P.eyesClosed;
+  const eyeOpen = Math.max(0.08, (1 - Math.sin(blink * Math.PI)) * (1 - closed * 0.92) * (1 - gestureSquint * 0.65));
 
   for (const eye of eyes) {
     tmp2.copy(eye.userData.base);

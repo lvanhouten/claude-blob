@@ -1,6 +1,7 @@
 // Records the README animations: renders each state on a fake clock and saves
 // the frames as PNGs, which encode.py turns into animated WebPs.
 //   npx electron tools/capture.js && python tools/encode.py
+//   npx electron tools/capture.js idle --query=light=side   (one clip, with extra URL settings)
 const { app, BrowserWindow } = require('electron');
 const fs = require('fs');
 const path = require('path');
@@ -10,9 +11,14 @@ const OUT = path.join(__dirname, '..', 'docs', 'frames');
 const CROP = { x: 30, y: 82, width: 240, height: 250 }; // same crop as the gallery cards
 const BG = '#00000000';
 const SETTLE_MS = 40;
+// --query=<url settings> records every clip with extra settings (say,
+// --query=light=side to try a look), into folders named clip+settings.
+const EXTRA = process.argv.find((a) => a.startsWith('--query='))?.slice(8);
 
 // warm: seconds to run before recording, so the state has eased in.
 // secs: one loop of the animation.
+// name/query: a clip's file name (default: the state) and extra URL settings,
+// for clips that show part of a state.
 const CLIPS = [
   { state: 'idle', warm: 2, secs: 4 },
   { state: 'thinking', warm: 2, secs: 4 },
@@ -21,8 +27,10 @@ const CLIPS = [
   { state: 'reading', warm: 2, secs: 4 },
   { state: 'searching', warm: 2, secs: 4 },
   { state: 'delegating', warm: 12, secs: 5.2 },
-  { state: 'attention', warm: 2, secs: 3 },
+  { state: 'attention', query: 'attn=calm', warm: 1, secs: 3 },
+  { name: 'attention-glow', state: 'attention', query: 'attn=glow', warm: 1, secs: 3 },
   { state: 'done', warm: 0, secs: 6 },
+  { name: 'dozing', state: 'sleeping', query: 'doze=1', warm: 0.1, secs: 7 },
   { state: 'sleeping', warm: 4, secs: 4 },
   { state: 'jiggle', warm: 0.5, secs: 4.4 },
   { state: 'dizzy', warm: 0, secs: 4.7 },
@@ -54,10 +62,11 @@ function makeWindow() {
 }
 
 async function record(win, clip) {
-  const dir = path.join(OUT, clip.state);
+  const name = (clip.name ?? clip.state) + (EXTRA ? `+${EXTRA}` : '');
+  const dir = path.join(OUT, name);
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
-  await win.loadFile(path.join(__dirname, '..', 'index.html'), { search: `embed&state=${clip.state}` });
+  await win.loadFile(path.join(__dirname, '..', 'index.html'), { search: `embed&state=${clip.state}${clip.query ? `&${clip.query}` : ''}${EXTRA ? `&${EXTRA}` : ''}` });
   const step = 1000 / FPS;
   await win.webContents.executeJavaScript(`for (let i = 0; i < ${Math.round(clip.warm * FPS)}; i++) __advance(${step})`);
   const frames = Math.round(clip.secs * FPS);
@@ -71,12 +80,12 @@ async function record(win, clip) {
     writes.push(fs.promises.writeFile(path.join(dir, String(i).padStart(4, '0') + '.png'), img.toPNG()));
   }
   await Promise.all(writes);
-  console.log(`${clip.state}: ${frames} frames`);
+  console.log(`${name}: ${frames} frames`);
 }
 
 app.whenReady().then(async () => {
   const only = process.argv.slice(2).filter((a) => !a.startsWith('-') && !a.endsWith('.js'));
-  const todo = CLIPS.filter((c) => !only.length || only.includes(c.state));
+  const todo = CLIPS.filter((c) => !only.length || only.includes(c.name ?? c.state));
   await Promise.all(Array.from({ length: Math.min(PARALLEL, todo.length) }, async () => {
     const win = makeWindow();
     while (todo.length) await record(win, todo.shift());

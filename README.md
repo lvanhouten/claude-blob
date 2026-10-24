@@ -44,23 +44,24 @@ The blob follows the session you most recently sent a prompt in.
 
 | Claude Code is…                    | The blob…                              |
 |------------------------------------|----------------------------------------|
-| thinking                           | wobbles and looks up, pondering        |
-| running a command (Bash)           | bounces quickly and jitters            |
-| editing files                      | hammers, squashing rhythmically        |
-| reading / searching files          | sways and scans side to side           |
-| searching the web                  | turns and looks around                 |
-| running subagents                  | buds off a mini-me per subagent that circles him until it finishes |
-| waiting for permission             | jumps, waves, glows with ripples, shows the message |
+| thinking                           | glances up to one side, then the other, with a "typing…" bubble over his head |
+| running a command (Bash)           | a terminal whizzes in, types the command and prints output while he taps away |
+| editing files                      | a blank page whizzes in; his arm sweeps down it and the code fills in |
+| reading / searching files          | pages of code whizz in one after another and he reads down each one |
+| searching the web                  | a browser window types a query, loads, and he reads the results |
+| running subagents                  | buds off a mini-me per subagent that circles him, then loops back over his head and lands on top when it finishes |
+| waiting for permission             | leans over and waves one arm up high; if you don't answer, he waves both, hops, then glows, and shows the message |
 | finished                           | spins and transforms into a star, then back |
-| idle for 5 minutes                 | falls asleep                           |
+| idle for 5 minutes                 | yawns, drifts off with his arms gone limp, and Z's float up |
 
 <table>
 <tr><td align="center"><img src="docs/media/idle.webp" width="180" alt="Idle"><br><sub>Idle</sub></td><td align="center"><img src="docs/media/thinking.webp" width="180" alt="Thinking"><br><sub>Thinking</sub></td><td align="center"><img src="docs/media/running.webp" width="180" alt="Running a command"><br><sub>Running a command</sub></td><td align="center"><img src="docs/media/building.webp" width="180" alt="Editing files"><br><sub>Editing files</sub></td></tr>
 <tr><td align="center"><img src="docs/media/reading.webp" width="180" alt="Reading"><br><sub>Reading</sub></td><td align="center"><img src="docs/media/searching.webp" width="180" alt="Searching the web"><br><sub>Searching the web</sub></td><td align="center"><img src="docs/media/delegating.webp" width="180" alt="Running subagents"><br><sub>Running subagents</sub></td><td align="center"><img src="docs/media/attention.webp" width="180" alt="Needs you"><br><sub>Needs you</sub></td></tr>
-<tr><td align="center"><img src="docs/media/done.webp" width="180" alt="Finished"><br><sub>Finished</sub></td><td align="center"><img src="docs/media/sleeping.webp" width="180" alt="Asleep"><br><sub>Asleep</sub></td><td align="center"><img src="docs/media/jiggle.webp" width="180" alt="Clicked"><br><sub>Clicked</sub></td><td align="center"><img src="docs/media/dizzy.webp" width="180" alt="Dizzy"><br><sub>Dizzy</sub></td></tr>
+<tr><td align="center"><img src="docs/media/attention-glow.webp" width="180" alt="Still needs you"><br><sub>Still needs you</sub></td><td align="center"><img src="docs/media/done.webp" width="180" alt="Finished"><br><sub>Finished</sub></td><td align="center"><img src="docs/media/dozing.webp" width="180" alt="Dozing off"><br><sub>Dozing off</sub></td><td align="center"><img src="docs/media/sleeping.webp" width="180" alt="Asleep"><br><sub>Asleep</sub></td></tr>
+<tr><td align="center"><img src="docs/media/jiggle.webp" width="180" alt="Clicked"><br><sub>Clicked</sub></td><td align="center"><img src="docs/media/dizzy.webp" width="180" alt="Dizzy"><br><sub>Dizzy</sub></td></tr>
 </table>
 
-Notifications from other sessions still show a bubble, labelled with that session's folder.
+Notifications from other sessions still show a bubble, labeled with that session's folder.
 
 Set `BLOB_PORT` (for both the app and the hook) to use a port other than 7777.
 

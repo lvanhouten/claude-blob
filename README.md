@@ -27,6 +27,7 @@ already have: each event's array can hold several entries.
 "PostToolUse":      [{ "hooks": [{ "type": "command", "command": "node /path/to/claude-blob/hook.js", "timeout": 5 }] }],
 "Notification":     [{ "hooks": [{ "type": "command", "command": "node /path/to/claude-blob/hook.js", "timeout": 5 }] }],
 "Stop":             [{ "hooks": [{ "type": "command", "command": "node /path/to/claude-blob/hook.js", "timeout": 5 }] }],
+"SubagentStop":     [{ "hooks": [{ "type": "command", "command": "node /path/to/claude-blob/hook.js", "timeout": 5 }] }],
 "SessionEnd":       [{ "hooks": [{ "type": "command", "command": "node /path/to/claude-blob/hook.js", "timeout": 5 }] }]
 ```
 
@@ -45,7 +46,7 @@ The blob follows the session you most recently sent a prompt in.
 | editing files                      | hammers, squashing rhythmically        |
 | reading / searching files          | sways and scans side to side           |
 | searching the web                  | turns and looks around                 |
-| running a subagent                 | wobbles harder and hops                |
+| running subagents                  | buds off a mini-me per subagent that circles him until it finishes |
 | waiting for permission             | jumps, waves, glows with ripples, shows the message |
 | finished                           | spins and transforms into a star, then back |
 | idle for 5 minutes                 | falls asleep                           |

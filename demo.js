@@ -10,7 +10,12 @@ const steps = [
   [{ event: 'PreToolUse', tool: 'Bash' }, 1500],
   [{ event: 'Notification', message: 'Claude needs your permission to use Bash' }, 4000],
   [{ event: 'PostToolUse', tool: 'Bash' }, 2000],
-  [{ event: 'PreToolUse', tool: 'Agent' }, 3000],
+  [{ event: 'PreToolUse', tool: 'Agent' }, 1200],
+  [{ event: 'PreToolUse', tool: 'Agent' }, 1200],
+  [{ event: 'PreToolUse', tool: 'Agent' }, 4000],
+  [{ event: 'SubagentStop' }, 1500],
+  [{ event: 'SubagentStop' }, 1500],
+  [{ event: 'SubagentStop' }, 1500],
   [{ event: 'Stop' }, 0],
 ];
 

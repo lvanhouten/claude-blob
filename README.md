@@ -13,6 +13,7 @@ npm run demo     # play a fake session to see every animation
 
 - **Drag** the blob to move it, **click** to jiggle it like jello (or dismiss a bubble), **double-click** to transform it into a star (and back), **right-click** (or use the tray icon) for the menu.
 - While it's idle, **circle your cursor around its eyes three times** and it spins itself dizzy.
+- **Light** in the menu sets where the light comes from: a fixed angle, or **Auto**, which lights him from the center of whichever monitor he's on.
 - Clicks anywhere else pass straight through to the windows underneath.
 - **Animation gallery** (tray or right-click menu, or open `gallery.html` through any local web server) shows every animation looping side by side.
 

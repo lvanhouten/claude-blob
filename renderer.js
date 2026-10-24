@@ -5,7 +5,7 @@ import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // Falls back to no-ops so the page can be previewed in a plain browser.
 const api = window.blob ?? {
-  onEvent() {}, onCursor() {}, setIgnore() {}, dragStart() {}, dragEnd() {}, contextMenu() {},
+  onEvent() {}, onCursor() {}, onLight() {}, setIgnore() {}, dragStart() {}, dragEnd() {}, contextMenu() {},
 };
 
 // Gallery mode: ?state=<name> holds one animation on a loop, ?embed hides the
@@ -108,10 +108,23 @@ const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
 camera.position.set(0, 0.55, 7);
 camera.lookAt(0, -0.35, 0);
 
+// Light angle presets: key is where the scene's key light (and so the glossy
+// highlights) sits, cel is the direction of the raking light behind the
+// cream/orange split and the halftone. ?light=<name> picks one.
+const LIGHTS = {
+  'upper-left': { key: [-3, 4, 4], cel: [-1, 0.8, 0.35] },
+  'upper-right': { key: [3, 4, 4], cel: [1, 0.8, 0.35] },
+  top: { key: [0, 5, 2], cel: [0, 1, 0.25] },
+  front: { key: [-2, 1.5, 5], cel: [-0.6, 0.35, 0.8] },
+  side: { key: [-5, 1, 0.5], cel: [-1, 0.25, -0.1] },
+};
+const LIGHT = LIGHTS[params.get('light')] ?? LIGHTS['upper-left'];
+
 const keyLight = new THREE.DirectionalLight(0xfff1e0, 1.6);
-keyLight.position.set(-3, 4, 4);
+keyLight.position.set(...LIGHT.key);
+// Fill from behind, on the far side from the key.
 const rimLight = new THREE.DirectionalLight(0xffb27a, 0.8);
-rimLight.position.set(3, 1, -3);
+rimLight.position.set(-LIGHT.key[0], 1, -3);
 scene.add(keyLight, rimLight, new THREE.HemisphereLight(0xfff4e8, 0x6b3b22, 0.5));
 
 const ROOT_Y = -0.76;
@@ -296,11 +309,28 @@ const dirs = Float32Array.from(posAttr.array);
 camera.updateMatrixWorld();
 const cel = {
   // A raking light from the upper left, separate from the scene lights.
-  uLightDir: { value: new THREE.Vector3(-1, 0.8, 0.35).normalize().transformDirection(camera.matrixWorldInverse) },
+  uLightDir: { value: new THREE.Vector3(...LIGHT.cel).normalize().transformDirection(camera.matrixWorldInverse) },
   uLitColor: { value: new THREE.Color('#ffdc9c') },
   uShadeColor: { value: new THREE.Color('#ff8642') },
   uBand: { value: 0.3 },
 };
+
+// The light can change while he runs (the Light menu, or Auto following him
+// around the monitor), so the lights ease toward these targets.
+const keyTarget = new THREE.Vector3(...LIGHT.key);
+const celTarget = cel.uLightDir.value.clone();
+function aimLight({ key, cel: dir }) {
+  keyTarget.set(...key);
+  celTarget.set(...dir).normalize().transformDirection(camera.matrixWorldInverse);
+}
+api.onLight(({ mode, x, y }) => {
+  if (params.has('light')) return; // a ?light= preview wins
+  if (LIGHTS[mode]) return aimLight(LIGHTS[mode]);
+  // Auto: lit from the middle of his monitor, so from the upper left in the
+  // bottom-right corner, and from the right when he's over on the left.
+  const dir = [-x * 1.1, 0.55 + 0.45 * y, 0.45];
+  aimLight({ cel: dir, key: [dir[0] * 3, 1.5 + dir[1] * 3, 4] });
+});
 
 function celShade(shader) {
   Object.assign(shader.uniforms, cel);
@@ -328,12 +358,20 @@ const bodyMat = new THREE.MeshPhysicalMaterial({
   emissiveIntensity: 0.06,
 });
 // Comic halftone: pale dots growing toward the shadowed side and the
-// silhouette. The grid lives in screen space, centred on the blob and sized to
+// silhouette. The grid lives in screen space, centered on the blob and sized to
 // it, so it follows the blob around but never stretches with its shape.
 const HALFTONE_DOTS_PER_UNIT = 15;
+// width stretches the wave's crests apart, speed is how fast they sweep across
+// the screen; both relative to the original wave (?wave=old).
+const HALFTONE_WAVE = params.get('wave') === 'old' ? { width: 1, speed: 1 } : { width: 1.6, speed: 1.8 };
+// Edge light: a thin warm sheen along the silhouette, strongest on the side
+// away from the key light. ?rim=0 turns it off.
+const RIM = params.get('rim') === '0' ? 0 : 1;
 const halftone = {
   uHalftone: { value: 1 },
-  uCenter: { value: new THREE.Vector2() }, // blob centre, in drawing-buffer pixels
+  uWaveK: { value: new THREE.Vector2(0.38, -0.26).divideScalar(HALFTONE_WAVE.width) },
+  uRim: { value: RIM },
+  uCenter: { value: new THREE.Vector2() }, // blob center, in drawing-buffer pixels
   uCell: { value: 6 },                     // dot spacing, in drawing-buffer pixels
   uTime: { value: 0 },
 };
@@ -345,7 +383,9 @@ bodyMat.onBeforeCompile = (shader) => {
       uniform float uHalftone;
       uniform vec2 uCenter;
       uniform float uCell;
-      uniform float uTime;`)
+      uniform float uTime;
+      uniform vec2 uWaveK;
+      uniform float uRim;`)
     .replace('#include <opaque_fragment>', `
       {
         vec2 p = (gl_FragCoord.xy - uCenter) / uCell;
@@ -355,12 +395,15 @@ bodyMat.onBeforeCompile = (shader) => {
         float rim = 1.0 - abs(dot(n, normalize(vViewPosition)));
         float amt = clamp(0.12 + shade * 0.85 + rim * 0.4, 0.0, 1.0) * uHalftone;
         // A wave washes diagonally over the grid; each dot swells as it passes.
-        float wave = 0.5 + 0.5 * sin(dot(floor(p) + 0.5, vec2(0.38, -0.26)) - uTime);
+        float wave = 0.5 + 0.5 * sin(dot(floor(p) + 0.5, uWaveK) - uTime);
         amt = clamp(amt * (0.3 + 1.1 * wave * wave), 0.0, 1.0);
         float r = 0.44 * sqrt(amt);
         float aa = fwidth(d);
         float dotMask = 1.0 - smoothstep(r - aa, r + aa, d);
         outgoingLight = mix(outgoingLight, vec3(0.95, 0.8, 0.6), dotMask * 0.8);
+        float edge = smoothstep(0.5, 0.8, rim);
+        float away = 0.5 - 0.5 * dot(normalize(n.xy + 1e-4), normalize(uLightDir.xy + 1e-4));
+        outgoingLight = mix(outgoingLight, vec3(1.0, 0.95, 0.86), edge * mix(0.35, 1.0, away) * uRim);
       }
       #include <opaque_fragment>`);
 };
@@ -500,7 +543,7 @@ function easeOutOvershoot(x) {
 }
 
 // Where the end of an arm is right now, in the root's space (where helpers
-// live): the deformed surface at the arm's centre, nudged out so a bulb sits
+// live): the deformed surface at the arm's center, nudged out so a bulb sits
 // on the tip rather than inside it.
 function armTip(i, out) {
   const a = armRest[i];
@@ -854,7 +897,7 @@ window.addEventListener('mouseup', (e) => {
 // Pokes stack up to a point, so tapping repeatedly gets him really wobbling.
 function poke(x, y) {
   const r = blobScreen.r || 1;
-  // Rough spot on his body from the click's offset from his centre.
+  // Rough spot on his body from the click's offset from his center.
   jiggle.origin.set((x - blobScreen.x) / r, -(y - blobScreen.y) / r, 0.8).normalize();
   jiggle.amp = Math.min(jiggleNow + JIGGLE.amp, JIGGLE.amp * 1.8);
   jiggle.t = 0;
@@ -976,6 +1019,9 @@ function frame(now) {
 
   // Ease params toward the current state.
   const k = 1 - Math.exp(-step * 4);
+  keyLight.position.lerp(keyTarget, k);
+  rimLight.position.set(-keyLight.position.x, 1, -3);
+  cel.uLightDir.value.lerp(celTarget, k).normalize();
   for (const key in P) if (key !== 'star') P[key] += (target[key] - P[key]) * k;
 
   // Transformations run on a timed curve instead of easing: wind up, rush
@@ -996,7 +1042,7 @@ function frame(now) {
   bodyMat.color.lerp(tintTarget, k);
   phase += step * P.speed;
   hemPhase += step * (0.8 + P.paddle * 5);
-  halftone.uTime.value += step * (1.6 + P.paddle * 2.5);
+  halftone.uTime.value += step * (1.6 + P.paddle * 2.5) * HALFTONE_WAVE.speed / HALFTONE_WAVE.width;
 
   // Hop
   hopPhase += step * P.hopHz;
@@ -1045,10 +1091,12 @@ function frame(now) {
   if (spin.t < 1) spin.t = Math.min(1, spin.t + step / spin.secs);
   const spinAngle = spin.t < 1 ? (1 - Math.cos(spin.t * Math.PI)) / 2 * Math.PI * 2 * spin.turns * spin.dir : 0;
   const rock = jiggleNow * 2.2 * Math.sin(jiggle.t * 11);
+  // Woozy wobble and eye-rolling turn the same way he spun.
+  const woozy = -time * spin.dir;
   body.rotation.set(
-    -look.y * 0.08 + Math.cos(time * 4.5) * 0.08 * P.dizzy + rock * 0.4,
+    -look.y * 0.08 + Math.cos(woozy * 4.5) * 0.08 * P.dizzy + rock * 0.4,
     look.x * 0.22 + spinAngle + Math.sin(time * 0.9) * 0.35 * P.lookAround,
-    Math.sin(time * 1.3) * 0.08 * (P.ponder + P.sway) + Math.sin(time * 4.5) * 0.14 * P.dizzy + rock,
+    Math.sin(time * 1.3) * 0.08 * (P.ponder + P.sway) + Math.sin(woozy * 4.5) * 0.14 * P.dizzy + rock,
   );
 
   // Arms: a lazy idle sway, lifted for waving, pumping while hammering, and
@@ -1088,7 +1136,7 @@ function frame(now) {
     tmp2.x += look.x * 0.16;
     tmp2.y += look.y * 0.1;
     // Dizzy: each eye rolls in its own circle, out of step with the other.
-    const roll = time * 8 + (eye.userData.base.x > 0 ? Math.PI : 0);
+    const roll = woozy * 8 + (eye.userData.base.x > 0 ? Math.PI : 0);
     tmp2.x += Math.cos(roll) * 0.1 * P.dizzy;
     tmp2.y += Math.sin(roll) * 0.07 * P.dizzy;
     tmp2.normalize();
@@ -1129,7 +1177,7 @@ function frame(now) {
   eyesScreen.y = (e0.y + e1.y) / 2;
   trackCircles(now);
 
-  // Halftone grid: anchored to the body's centre, sized from the unrotated
+  // Halftone grid: anchored to the body's center, sized from the unrotated
   // root so spins and shape changes don't resize the dots.
   const dpr = renderer.getPixelRatio();
   const o = toScreen(tmp.set(0, 0, 0).applyMatrix4(root.matrixWorld));

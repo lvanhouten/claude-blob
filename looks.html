@@ -1,0 +1,105 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Blob Looks</title>
+  <style>
+    :root {
+      --bg: #f4ede6;
+      --card: #e6dbd0;
+      --ink: #2e2018;
+      --muted: #7a6455;
+      --accent: #c2622c;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1c1917;
+        --card: #2a2420;
+        --ink: #f5ebe3;
+        --muted: #a8968a;
+        --accent: #ff9a5c;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 32px 24px 48px;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    }
+    header { max-width: 1280px; margin: 0 auto 24px; }
+    h1 { margin: 0 0 6px; font-size: 22px; font-weight: 650; }
+    header p { margin: 0; color: var(--muted); font-size: 14px; }
+    .grid {
+      max-width: 1280px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 16px;
+    }
+    figure {
+      margin: 0;
+      background: var(--card);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    /* Crop the empty speech-bubble area off the top of the 300x380 blob page. */
+    .stage {
+      position: relative;
+      height: 250px;
+      overflow: hidden;
+    }
+    .stage iframe {
+      position: absolute;
+      left: 50%;
+      top: -82px;
+      width: 300px;
+      height: 380px;
+      margin-left: -150px;
+      border: 0;
+      background: transparent;
+    }
+    .stage.dark { background: #0d1117; }
+    .stage.light { background: #ffffff; }
+    figcaption { padding: 4px 16px 16px; }
+    figcaption strong { display: block; font-size: 15px; font-weight: 650; }
+    figcaption code {
+      display: inline-block;
+      margin: 4px 0 6px;
+      font-size: 12px;
+      color: var(--accent);
+      font-family: "Cascadia Code", Consolas, monospace;
+    }
+    figcaption span { display: block; color: var(--muted); font-size: 13px; line-height: 1.4; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Blob looks</h1>
+    <p>Light angles, the edge light and the halftone wave, side by side. Each look is shown on GitHub's dark and light backgrounds.</p>
+  </header>
+  <main class="grid" id="grid"></main>
+  <script>
+    const LOOKS = [
+      ['light=upper-left&rim=0&wave=old', 'Before', 'Upper-left light, no edge light, original wave.'],
+      ['light=upper-left', 'Upper left', 'The current light angle, with the edge light and the new wave.'],
+      ['light=upper-right', 'Upper right', 'Mirrored: highlights on his right, shade on his left.'],
+      ['light=top', 'Top', 'Lit from above: bright crown, orange underside.'],
+      ['light=front', 'Front', 'Low and in front: mostly cream, a thin orange edge.'],
+      ['light=side', 'Side', 'Hard side light: half cream, half orange.'],
+    ];
+    const grid = document.getElementById('grid');
+    for (const [query, title, text] of LOOKS) {
+      for (const bg of ['dark', 'light']) {
+        const fig = document.createElement('figure');
+        fig.innerHTML = `
+          <div class="stage ${bg}"><iframe src="index.html?embed&state=idle&${query}" title="${title}" loading="lazy"></iframe></div>
+          <figcaption><strong>${title}</strong><code>${query}</code><span>${text}</span></figcaption>`;
+        grid.append(fig);
+      }
+    }
+  </script>
+</body>
+</html>

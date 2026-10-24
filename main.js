@@ -22,7 +22,7 @@ function homePosition() {
 // Where he was last left, so he reopens there. Saved after each drag, reset and quit.
 const positionFile = () => path.join(app.getPath('userData'), 'window-position.json');
 
-// The window's centre must land in some display's work area; otherwise (monitor
+// The window's center must land in some display's work area; otherwise (monitor
 // unplugged, resolution changed) he'd open off-screen.
 function onScreen({ x, y }) {
   const cx = x + WIN_W / 2;
@@ -43,6 +43,34 @@ function savePosition() {
   if (!win || win.isDestroyed()) return;
   const [x, y] = win.getPosition();
   try { fs.writeFileSync(positionFile(), JSON.stringify({ x, y })); } catch { /* not worth crashing over */ }
+}
+
+// Which way the light comes from: a fixed preset, or 'auto' to light him from
+// the middle of whichever monitor he's on.
+const LIGHTS = [['auto', 'Auto (from screen center)'], ['upper-left', 'Upper left'], ['upper-right', 'Upper right'],
+  ['top', 'Top'], ['front', 'Front'], ['side', 'Side']];
+const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
+let light = 'auto';
+try { light = JSON.parse(fs.readFileSync(settingsFile(), 'utf8')).light ?? light; } catch { /* defaults */ }
+
+function setLight(mode) {
+  light = mode;
+  try { fs.writeFileSync(settingsFile(), JSON.stringify({ light })); } catch { /* not worth crashing over */ }
+  sendLight();
+  if (tray) tray.setContextMenu(menu());
+}
+
+// Where he sits on his monitor, -1..1 from left to right and top to bottom.
+function sendLight() {
+  if (!win || win.isDestroyed()) return;
+  const b = win.getBounds();
+  const c = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  const { workArea: a } = screen.getDisplayNearestPoint(c);
+  win.webContents.send('light', {
+    mode: light,
+    x: Math.max(-1, Math.min(1, ((c.x - a.x) / a.width) * 2 - 1)),
+    y: Math.max(-1, Math.min(1, ((c.y - a.y) / a.height) * 2 - 1)),
+  });
 }
 
 function createWindow() {
@@ -68,6 +96,8 @@ function createWindow() {
   // so the renderer can switch this off while the cursor is over the blob.
   win.setIgnoreMouseEvents(true, { forward: true });
   win.loadFile('index.html');
+  win.webContents.on('did-finish-load', sendLight);
+  win.on('move', () => { if (light === 'auto') sendLight(); });
 
   // Feed the cursor position to the renderer so the eyes can follow it anywhere on screen.
   let last = '';
@@ -106,6 +136,7 @@ function menu() {
   return Menu.buildFromTemplate([
     { label: 'Reset position', click: () => { const p = homePosition(); win.setPosition(p.x, p.y); savePosition(); } },
     { label: 'Test notification', click: () => send({ event: 'Notification', session: 'test', cwd: 'claude-blob', message: 'Claude needs your permission to use Bash' }) },
+    { label: 'Light', submenu: LIGHTS.map(([mode, label]) => ({ label, type: 'radio', checked: light === mode, click: () => setLight(mode) })) },
     { label: 'Animation gallery', click: openGallery },
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() },

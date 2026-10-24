@@ -26,6 +26,7 @@ const DEFAULTS = {
   scan: 0, lookAround: 0, ponder: 0,    // eye behaviours
   glow: 0, breath: 1, eyesClosed: 0,
   star: 0,                              // 0 = blob, 1 = star
+  dizzy: 0,                             // woozy eye-rolling and swaying
   paddle: 0,                            // feet shuffling
   hover: 1,                             // floating off the desk
 };
@@ -41,6 +42,7 @@ const STATES = {
   attention: { speed: 1.4, amp: 0.08, hop: 0.32, hopHz: 1.7, wave: 1, glow: 1, paddle: 1 },
   done: { speed: 0.7, amp: 0.03, star: 1 },
   sleeping: { speed: 0.15, amp: 0.025, breath: 2.2, eyesClosed: 1, hover: 0 },
+  dizzy: { speed: 1.0, amp: 0.1, freq: 1.6, dizzy: 1 },
 };
 
 const LABELS = {
@@ -53,6 +55,7 @@ const LABELS = {
   attention: 'needs you!',
   done: 'done',
   sleeping: 'zzz',
+  dizzy: 'dizzy…',
 };
 
 const TINTS = { sleeping: '#bdb6dc' };
@@ -67,6 +70,13 @@ const TOOL_STATES = {
 
 const SLEEP_AFTER_MS = 5 * 60 * 1000;
 const DONE_HOLD_MS = 4500;
+const DIZZY_MS = 3200; // spin plus the woozy part
+
+// Jello poke: a ripple runs out from the poke point while the whole body
+// rocks, both dying away. freq is the ripple's speed, spread how tight it is.
+const JIGGLE = { amp: 0.09, decay: 2.6, freq: 16, spread: 7 };
+const jiggle = { amp: 0, t: 10, origin: new THREE.Vector3(0, 0, 1) };
+let jiggleNow = 0;
 const STAR_TWEEN_S = 1.1; // length of a blob <-> star transformation
 
 // Standard "back" in-out curve: dips slightly before starting, overshoots past
@@ -143,7 +153,9 @@ function starEdge(a) {
 // Pac-Man ghost body: the sphere's upper half stays a dome, the lower half is
 // unrolled into straight walls ending in a scalloped hem of stubby feet, and the
 // last bit tucks under as a hidden underside.
-const GHOST = { n: 5, box: 2.2, taper: 0.16, wall: 0.62, flare: 0.04, bulge: 0.1, scallop: 0.26, cap: 0.14 };
+// wallDy: how far down the sphere (in dy) the straight wall runs before the underside
+const GHOST = { n: 5, box: 2.2, taper: 0.16, wallDy: 0.92, flare: 0.04, bulge: 0.1, scallop: 0.26, cap: 0.14 };
+const CAP_HL = Math.sqrt(1 - GHOST.wallDy ** 2); // sphere width where the wall ends
 let hemPhase = 0; // rolls the feet around the hem
 
 // radius: size of the skin patch each arm grows from
@@ -170,7 +182,12 @@ function surface(dx, dy, dz, out) {
   const w = dy < 0 ? 1 - hl : 0; // 0 at the equator, 1 at the bottom pole
   // Smooth dome on top; the wobble lives in the skirt.
   const skirt = THREE.MathUtils.smoothstep(w, 0, 0.45);
-  const r = 1 + noise.noise4d(dx * P.freq, dy * P.freq, dz * P.freq, phase) * P.amp * (0.12 + 0.88 * skirt);
+  let r = 1 + noise.noise4d(dx * P.freq, dy * P.freq, dz * P.freq, phase) * P.amp * (0.12 + 0.88 * skirt);
+  // Jello ripple spreading out from where he was poked.
+  if (jiggleNow > 0.001) {
+    const dist = 1 - (dx * jiggle.origin.x + dy * jiggle.origin.y + dz * jiggle.origin.z);
+    r += jiggleNow * Math.sin(JIGGLE.freq * jiggle.t - JIGGLE.spread * dist) * Math.exp(-dist * 0.6);
+  }
 
   let x, y, z;
   if (dy >= 0) {
@@ -188,13 +205,17 @@ function surface(dx, dy, dz, out) {
     const hem = -SHAPE.floor - GHOST.scallop * (1 - lobe) ** 2.5; // feet reach the floor
     const ux = hl > 1e-6 ? dx / hl : 0;
     const uz = hl > 1e-6 ? dz / hl : 0;
+    // Height down the wall follows dy itself, the same measure the dome uses,
+    // so rows of the mesh stay evenly spaced across the seam (measuring it from
+    // the width bunched them up just under it and left a crease).
     let rad;
-    if (w < GHOST.wall) {
-      const f = w / GHOST.wall;
+    if (-dy < GHOST.wallDy) {
+      const f = -dy / GHOST.wallDy;
       rad = (1 + GHOST.flare * f * f + GHOST.bulge * lobe * f ** 4) * r; // bulbous feet
       y = -f * hem;
     } else {
-      const c = (w - GHOST.wall) / (1 - GHOST.wall);
+      // The underside: tucks in from the hem to the bottom pole.
+      const c = 1 - hl / CAP_HL;
       rad = (1 + GHOST.flare + GHOST.bulge * lobe) * r * (1 - c);
       y = -hem + Math.sqrt(c) * GHOST.cap;
     }
@@ -441,7 +462,11 @@ let focused = null;   // session the user most recently prompted
 let project = '';
 const tintTarget = new THREE.Color('#ffffff');
 const spring = { x: 0, v: 0 };
-let spinT = 1;
+const spin = { t: 1, turns: 1, dir: 1, secs: 0.9 };
+
+function startSpin(turns, secs, dir = 1) {
+  Object.assign(spin, { t: 0, turns, secs, dir });
+}
 
 function projectOf(cwd) {
   return cwd ? cwd.split(/[\\/]/).filter(Boolean).pop() : '';
@@ -461,7 +486,8 @@ function setState(next) {
   target = { ...DEFAULTS, ...STATES[next] };
   if (starMode) target.star = 1;
   tintTarget.set(TINTS[next] || '#ffffff');
-  if (next === 'done') spinT = 0;
+  if (next === 'done') startSpin(1, 0.9);
+  if (next === 'dizzy') startSpin(2, 1.1, spin.dir);
   spring.v -= prev === 'sleeping' || next === 'attention' ? 3 : 1.2;
   updateChip();
 }
@@ -575,7 +601,7 @@ window.addEventListener('mouseup', (e) => {
     dragging = false;
   } else if (press) {
     if (overBubble(e.clientX, e.clientY) || !bubbleEl.classList.contains('hidden')) hideBubble();
-    spring.v -= 4;
+    poke(e.clientX, e.clientY);
     if (state === 'sleeping') setState('idle');
     const now = performance.now();
     if (now - lastClickAt < 350) toggleStar();
@@ -584,6 +610,17 @@ window.addEventListener('mouseup', (e) => {
   }
   press = null;
 });
+
+// Pokes stack up to a point, so tapping repeatedly gets him really wobbling.
+function poke(x, y) {
+  const r = blobScreen.r || 1;
+  // Rough spot on his body from the click's offset from his centre.
+  jiggle.origin.set((x - blobScreen.x) / r, -(y - blobScreen.y) / r, 0.8).normalize();
+  jiggle.amp = Math.min(jiggleNow + JIGGLE.amp, JIGGLE.amp * 1.8);
+  jiggle.t = 0;
+  spring.v -= 1.5;
+}
+window.__poke = poke;
 
 function toggleStar() {
   starMode = !starMode;
@@ -623,6 +660,56 @@ let blink = 0;
 let last = performance.now();
 let sinceRender = 0;
 
+// Dizzy gesture: while he's idle, circling the cursor around his eyes three
+// whole times in one direction (without stopping for long) spins him dizzy.
+const eyesScreen = { x: 0, y: 0 };
+// against: how far the cursor has gone backwards, so a brief wobble doesn't
+// count as reversing direction.
+const circling = { last: null, total: 0, against: 0, at: 0, cursor: null };
+const DIZZY_TURNS = 3;
+window.__circling = circling; // for checking the gesture from devtools
+window.__eyesScreen = eyesScreen;
+
+function trackCircles(now) {
+  if (state !== 'idle' || starMode || !cursor) {
+    circling.last = null;
+    circling.total = 0;
+    return;
+  }
+  if (now - circling.at > 1200) circling.total = 0; // paused too long
+  // Only measure when the cursor actually moves; his own bobbing would
+  // otherwise jitter the angle.
+  if (cursor === circling.cursor) return;
+  circling.cursor = cursor;
+  const dx = cursor.x - eyesScreen.x;
+  const dy = cursor.y - eyesScreen.y;
+  const dist = Math.hypot(dx, dy);
+  // Too close to tell the direction, or too far away to be circling him.
+  if (dist < 15 || dist > 260) {
+    circling.last = null;
+    return;
+  }
+  const a = Math.atan2(dy, dx);
+  if (circling.last !== null) {
+    let d = a - circling.last;
+    d = ((d + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+    if (circling.total === 0 || Math.sign(d) === Math.sign(circling.total)) {
+      circling.total += d;
+      circling.against = Math.max(0, circling.against - Math.abs(d));
+    } else if ((circling.against += Math.abs(d)) > 0.8) {
+      circling.total = d; // genuinely circling the other way now
+      circling.against = 0;
+    }
+    circling.at = now;
+  }
+  circling.last = a;
+  if (Math.abs(circling.total) >= Math.PI * 2 * DIZZY_TURNS) {
+    spin.dir = Math.sign(circling.total);
+    circling.total = 0;
+    setState('dizzy');
+  }
+}
+
 function toScreen(v) {
   v.project(camera);
   return { x: (v.x + 1) / 2 * W, y: (1 - v.y) / 2 * H };
@@ -642,6 +729,7 @@ function frame(now) {
 
   if (!LOCKED && state === 'idle' && now - lastEventAt > SLEEP_AFTER_MS) setState('sleeping');
   if (state === 'done' && now - stateSince > DONE_HOLD_MS) setState('idle');
+  if (state === 'dizzy' && now - stateSince > DIZZY_MS) setState('idle');
   // A locked state that times out (like done) replays after a short rest.
   if (STATES[LOCKED] && state !== LOCKED && now - stateSince > 1500) setState(LOCKED);
 
@@ -679,9 +767,16 @@ function frame(now) {
   spring.v += (-180 * spring.x - 9 * spring.v) * step;
   spring.x += spring.v * step;
 
+  jiggle.t += step;
+  jiggleNow = jiggle.amp * Math.exp(-JIGGLE.decay * jiggle.t);
+  if (LOCKED === 'jiggle' && jiggle.t > 2.2) {
+    poke(blobScreen.x + (Math.random() - 0.5) * blobScreen.r, blobScreen.y + (Math.random() - 0.5) * blobScreen.r);
+  }
+
   squash = landing * P.hop * 0.7 - h * 0.3
     + Math.sin(time * 1.7) * 0.018 * P.breath
     + P.hammer * 0.07 * Math.max(0, Math.sin(time * 9)) ** 2
+    + jiggleNow * 1.4 * Math.sin(jiggle.t * 13)
     - spring.x * 0.05;
 
   const hoverY = P.hover * (0.14 + Math.sin(time * 1.4) * 0.07);
@@ -704,12 +799,13 @@ function frame(now) {
   look.lerp(lookTarget, 1 - Math.exp(-step * 10));
 
   // Body orientation
-  if (spinT < 1) spinT = Math.min(1, spinT + step / 0.9);
-  const spinEase = spinT < 1 ? (1 - Math.cos(spinT * Math.PI)) / 2 : 1;
+  if (spin.t < 1) spin.t = Math.min(1, spin.t + step / spin.secs);
+  const spinAngle = spin.t < 1 ? (1 - Math.cos(spin.t * Math.PI)) / 2 * Math.PI * 2 * spin.turns * spin.dir : 0;
+  const rock = jiggleNow * 2.2 * Math.sin(jiggle.t * 11);
   body.rotation.set(
-    -look.y * 0.08,
-    look.x * 0.22 + (spinT < 1 ? spinEase * Math.PI * 2 : 0) + Math.sin(time * 0.9) * 0.35 * P.lookAround,
-    Math.sin(time * 1.3) * 0.08 * (P.ponder + P.sway),
+    -look.y * 0.08 + Math.cos(time * 4.5) * 0.08 * P.dizzy + rock * 0.4,
+    look.x * 0.22 + spinAngle + Math.sin(time * 0.9) * 0.35 * P.lookAround,
+    Math.sin(time * 1.3) * 0.08 * (P.ponder + P.sway) + Math.sin(time * 4.5) * 0.14 * P.dizzy + rock,
   );
 
   // Arms: a lazy idle sway, lifted for waving, pumping while hammering, and
@@ -745,6 +841,10 @@ function frame(now) {
     tmp2.x *= 1 - P.star * 0.2; // a touch closer together on the star's face
     tmp2.x += look.x * 0.16;
     tmp2.y += look.y * 0.1;
+    // Dizzy: each eye rolls in its own circle, out of step with the other.
+    const roll = time * 8 + (eye.userData.base.x > 0 ? Math.PI : 0);
+    tmp2.x += Math.cos(roll) * 0.1 * P.dizzy;
+    tmp2.y += Math.sin(roll) * 0.07 * P.dizzy;
     tmp2.normalize();
     surface(tmp2.x, tmp2.y, tmp2.z, tmp).multiplyScalar(0.995);
     eye.position.copy(tmp);
@@ -769,6 +869,11 @@ function frame(now) {
   blobScreen.x = c.x;
   blobScreen.y = c.y;
   blobScreen.r = Math.abs(edge.x - c.x);
+  const e0 = toScreen(eyes[0].getWorldPosition(tmp));
+  const e1 = toScreen(eyes[1].getWorldPosition(tmp));
+  eyesScreen.x = (e0.x + e1.x) / 2;
+  eyesScreen.y = (e0.y + e1.y) / 2;
+  trackCircles(now);
 
   // Halftone grid: anchored to the body's centre, sized from the unrotated
   // root so spins and shape changes don't resize the dots.

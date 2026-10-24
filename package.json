@@ -5,7 +5,8 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "demo": "node demo.js"
+    "demo": "node demo.js",
+    "capture": "electron tools/capture.js"
   },
   "keywords": [],
   "author": "",

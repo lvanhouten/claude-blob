@@ -3,6 +3,8 @@
 A little 3D gummy blob that sits on your desktop, reacts to what your Claude Code
 session is doing, and pops up a speech bubble when Claude needs you.
 
+<p align="center"><img src="docs/media/done.webp" width="240" alt="The blob spinning into a star when a turn finishes"></p>
+
 ```
 npm install
 npm start        # launch the blob (bottom-right of your primary screen)
@@ -51,9 +53,24 @@ The blob follows the session you most recently sent a prompt in.
 | finished                           | spins and transforms into a star, then back |
 | idle for 5 minutes                 | falls asleep                           |
 
+<table>
+<tr><td align="center"><img src="docs/media/idle.webp" width="180" alt="Idle"><br><sub>Idle</sub></td><td align="center"><img src="docs/media/thinking.webp" width="180" alt="Thinking"><br><sub>Thinking</sub></td><td align="center"><img src="docs/media/running.webp" width="180" alt="Running a command"><br><sub>Running a command</sub></td><td align="center"><img src="docs/media/building.webp" width="180" alt="Editing files"><br><sub>Editing files</sub></td></tr>
+<tr><td align="center"><img src="docs/media/reading.webp" width="180" alt="Reading"><br><sub>Reading</sub></td><td align="center"><img src="docs/media/searching.webp" width="180" alt="Searching the web"><br><sub>Searching the web</sub></td><td align="center"><img src="docs/media/delegating.webp" width="180" alt="Running subagents"><br><sub>Running subagents</sub></td><td align="center"><img src="docs/media/attention.webp" width="180" alt="Needs you"><br><sub>Needs you</sub></td></tr>
+<tr><td align="center"><img src="docs/media/done.webp" width="180" alt="Finished"><br><sub>Finished</sub></td><td align="center"><img src="docs/media/sleeping.webp" width="180" alt="Asleep"><br><sub>Asleep</sub></td><td align="center"><img src="docs/media/jiggle.webp" width="180" alt="Clicked"><br><sub>Clicked</sub></td><td align="center"><img src="docs/media/dizzy.webp" width="180" alt="Dizzy"><br><sub>Dizzy</sub></td></tr>
+</table>
+
 Notifications from other sessions still show a bubble, labelled with that session's folder.
 
 Set `BLOB_PORT` (for both the app and the hook) to use a port other than 7777.
 
 To check the hooks are reaching the app, open `http://127.0.0.1:7777/recent` to see the last
 20 events it received.
+
+## Re-recording the animations
+
+The clips above are rendered frame by frame on a fake clock, then encoded with Pillow:
+
+```
+npm run capture            # or: npx electron tools/capture.js done dizzy
+python tools/encode.py     # writes docs/media/*.webp
+```

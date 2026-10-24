@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'">
+  <title>Claude Blob</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./node_modules/three/build/three.module.js",
+        "three/addons/": "./node_modules/three/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="pulse"><span></span><span></span><span></span></div>
+  <canvas id="scene"></canvas>
+  <div id="shadow"></div>
+  <div id="bubble" class="hidden">
+    <div id="bubble-label"></div>
+    <div id="bubble-text"></div>
+  </div>
+  <div id="chip" class="hidden"></div>
+  <script type="module" src="renderer.js"></script>
+</body>
+</html>

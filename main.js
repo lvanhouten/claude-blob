@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, screen, Menu, Tray, nativeImage } = require('electron');
+const fs = require('fs');
 const http = require('http');
 const path = require('path');
 
@@ -18,8 +19,34 @@ function homePosition() {
   return { x: workArea.x + workArea.width - WIN_W - 24, y: workArea.y + workArea.height - WIN_H };
 }
 
+// Where he was last left, so he reopens there. Saved after each drag, reset and quit.
+const positionFile = () => path.join(app.getPath('userData'), 'window-position.json');
+
+// The window's centre must land in some display's work area; otherwise (monitor
+// unplugged, resolution changed) he'd open off-screen.
+function onScreen({ x, y }) {
+  const cx = x + WIN_W / 2;
+  const cy = y + WIN_H / 2;
+  return screen.getAllDisplays().some(({ workArea: a }) =>
+    cx >= a.x && cx <= a.x + a.width && cy >= a.y && cy <= a.y + a.height);
+}
+
+function startPosition() {
+  try {
+    const p = JSON.parse(fs.readFileSync(positionFile(), 'utf8'));
+    if (Number.isFinite(p.x) && Number.isFinite(p.y) && onScreen(p)) return p;
+  } catch { /* no saved position yet */ }
+  return homePosition();
+}
+
+function savePosition() {
+  if (!win || win.isDestroyed()) return;
+  const [x, y] = win.getPosition();
+  try { fs.writeFileSync(positionFile(), JSON.stringify({ x, y })); } catch { /* not worth crashing over */ }
+}
+
 function createWindow() {
-  const { x, y } = homePosition();
+  const { x, y } = startPosition();
   win = new BrowserWindow({
     x, y,
     width: WIN_W,
@@ -77,7 +104,7 @@ function trayIcon() {
 
 function menu() {
   return Menu.buildFromTemplate([
-    { label: 'Reset position', click: () => { const p = homePosition(); win.setPosition(p.x, p.y); } },
+    { label: 'Reset position', click: () => { const p = homePosition(); win.setPosition(p.x, p.y); savePosition(); } },
     { label: 'Test notification', click: () => send({ event: 'Notification', session: 'test', cwd: 'claude-blob', message: 'Claude needs your permission to use Bash' }) },
     { label: 'Animation gallery', click: openGallery },
     { type: 'separator' },
@@ -144,6 +171,7 @@ ipcMain.on('drag-start', () => {
 ipcMain.on('drag-end', () => {
   clearInterval(dragTimer);
   dragTimer = null;
+  savePosition();
 });
 
 ipcMain.on('context-menu', () => menu().popup({ window: win }));
@@ -157,3 +185,4 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => app.quit());
+app.on('before-quit', savePosition);

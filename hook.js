@@ -18,9 +18,11 @@ process.stdin.on('end', () => {
     event: e.hook_event_name,
     session: e.session_id,
     cwd: e.cwd,
+    agent: e.agent_id,
     tool: e.tool_name,
     message: e.message,
     type: e.notification_type,
+    tasks: e.background_tasks?.filter((t) => t.type === 'subagent' && t.status === 'running').map((t) => t.id),
   });
 
   const req = http.request({

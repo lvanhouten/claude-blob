@@ -1116,10 +1116,22 @@ function spawnMinion(session) {
   gestures.push({ kind: 'bud', session });
 }
 
-// Oldest first: finish events don't say which helper finished, only that one did.
-function retireMinion(session) {
+// The Agent call that buds a helper doesn't know the subagent's id yet, so the
+// first event carrying a new id claims the session's oldest unclaimed helper.
+function bindMinion(session, agent) {
+  const helpers = [...minions, ...gestures.filter((g) => g.kind === 'bud' && !g.minion)];
+  if (helpers.some((x) => x.agent === agent)) return;
+  const free = helpers.find((x) => x.session === session && !x.agent && !x.leaving);
+  if (free) free.agent = agent;
+}
+
+// Retires the helper bound to `agent`, else the session's oldest unclaimed one.
+function retireMinion(session, agent) {
   const waiting = (x) => !x.leaving && (x.phase === 'in' || x.phase === 'orbit');
-  const m = minions.find((x) => waiting(x) && (!session || x.session === session)) ?? minions.find(waiting);
+  const m = (agent && minions.find((x) => waiting(x) && x.agent === agent))
+    ?? minions.find((x) => waiting(x) && x.session === session && !x.agent)
+    ?? minions.find((x) => waiting(x) && (!session || x.session === session))
+    ?? minions.find(waiting);
   if (!m) return;
   m.leaving = true;
   gestures.push({ kind: 'catch', minion: m });
@@ -1196,7 +1208,7 @@ function updateGesture(step) {
       gestureLook = { x: g.side * 0.9, y: 0.1 };
       if (!g.minion) {
         g.minion = {
-          session: g.session, group: makeMinion(), phase: 'budding', t: 0,
+          session: g.session, agent: g.agent, group: makeMinion(), phase: 'budding', t: 0,
           born: performance.now(), angle: orbitAngle, bob: Math.random() * Math.PI * 2,
         };
         minions.push(g.minion);
@@ -1272,7 +1284,7 @@ function updateMinions(step, now) {
   const orbiting = minions.filter((m) => m.phase === 'in' || m.phase === 'orbit');
   for (const m of minions) {
     m.t += step;
-    if (!m.leaving && now - m.born > MINION.maxAgeMs) retireMinion(m.session); // never heard back
+    if (!m.leaving && now - m.born > MINION.maxAgeMs) retireMinion(m.session, m.agent); // never heard back
     if (m.phase === 'budding' || m.phase === 'caught') continue; // the gesture moves these
     // Spread evenly around the ring, sliding over as helpers come and go.
     const i = orbiting.indexOf(m);
@@ -1345,8 +1357,10 @@ function hideBubble() {
 let state = 'idle';
 let stateSince = performance.now();
 let lastEventAt = performance.now();
-let focused = null;   // session the user most recently prompted
-let project = '';
+// One entry per live Claude Code session. The blob shows a derived view of all
+// of them, so no session's events can overwrite another's.
+const sessions = new Map(); // id -> { id, project, activity, at, ask, askedAt, agents, awaitingAgents }
+let current = null; // id of the session the blob is showing
 const tintTarget = new THREE.Color('#ffffff');
 const spring = { x: 0, v: 0 };
 const spin = { t: 1, turns: 1, dir: 1, secs: 0.9 };
@@ -1361,8 +1375,10 @@ function projectOf(cwd) {
 
 function updateChip() {
   const label = LABELS[state];
-  chipEl.textContent = label ? (project ? `${label} · ${project}` : label) : '';
-  chipEl.classList.toggle('hidden', !label);
+  const project = sessions.get(current)?.project;
+  const text = [label, project].filter(Boolean).join(' · ');
+  chipEl.textContent = text;
+  chipEl.classList.toggle('hidden', !text);
 }
 
 function setState(next) {
@@ -1379,71 +1395,142 @@ function setState(next) {
   updateChip();
 }
 
-function onEvent(e) {
-  if (!e || !e.event) return;
-  lastEventAt = performance.now();
-  const proj = projectOf(e.cwd);
-  const isFocused = !focused || e.session === focused;
+const WORKING = new Set(['thinking', 'attention', ...Object.values(TOOL_STATES)]);
+// A session silent this long is presumed dead (killed without a SessionEnd).
+const STALE_MS = 15 * 60 * 1000;
 
-  // Any activity in a session means a pending "needs you" for it was handled.
-  if (bubbleSession && e.session === bubbleSession && e.event !== 'Notification') hideBubble();
+function sessionFor(e) {
+  let s = sessions.get(e.session);
+  if (!s) sessions.set(e.session, s = { id: e.session, activity: 'idle', ask: null, askedAt: 0, agents: new Set() });
+  s.project = projectOf(e.cwd) || s.project || '';
+  s.at = performance.now();
+  return s;
+}
 
-  switch (e.event) {
-    case 'SessionStart':
-      if (!focused) { focused = e.session; project = proj; }
-      if (state === 'sleeping') setState('idle');
-      break;
-    case 'UserPromptSubmit':
-      focused = e.session;
-      project = proj;
-      setState('thinking');
-      break;
-    case 'PreToolUse':
-      // Every session's subagents get a helper, not just the focused one's.
-      if (e.tool === 'Agent' || e.tool === 'Task') spawnMinion(e.session);
-      if (!isFocused) break;
-      focused = e.session;
-      project = proj;
-      setState(TOOL_STATES[e.tool] || 'thinking');
-      break;
-    case 'PostToolUse':
-      if (!isFocused) break;
-      setState('thinking');
-      break;
-    case 'Notification': {
-      const msg = e.message || 'Claude needs your attention';
-      const idle = e.type === 'idle_prompt' || /waiting for your input/i.test(msg);
-      if (idle) {
-        showBubble(msg, proj, { timeout: 8000, session: e.session });
-        spring.v -= 2;
-      } else {
-        project = proj;
-        setState('attention');
-        showBubble(msg, proj, { attention: true, session: e.session });
-      }
-      break;
+function pendingAsks() {
+  return [...sessions.values()].filter((s) => s.ask).sort((a, b) => a.askedAt - b.askedAt);
+}
+
+function liveSession() {
+  const now = performance.now();
+  let live = null;
+  for (const s of sessions.values()) {
+    if (s.activity !== 'idle' && now - s.at < STALE_MS && (!live || s.at > live.at)) live = s;
+  }
+  return live;
+}
+
+function latestSession() {
+  let latest = null;
+  for (const s of sessions.values()) if (!latest || s.at > latest.at) latest = s;
+  return latest;
+}
+
+// Points the blob at whatever matters most: the oldest unanswered ask, else the
+// most recently active session, else stays on the last one shown. `release` lets a transient state (done, dizzy)
+// fall back to idle when nothing is going on.
+function settle({ release = false } = {}) {
+  if (LOCKED) return;
+  const asks = pendingAsks();
+  if (asks.length) {
+    const ask = asks[0];
+    const label = asks.length > 1 ? `${ask.project} · +${asks.length - 1} more` : ask.project;
+    current = ask.id;
+    setState('attention');
+    showBubble(ask.ask, label, { attention: true, session: ask.id });
+  } else {
+    if (bubbleEl.classList.contains('attention')) hideBubble();
+    const live = liveSession();
+    if (!sessions.has(current)) current = latestSession()?.id ?? null;
+    if (live) {
+      current = live.id;
+      setState(live.activity);
+    } else if (release || WORKING.has(state)) {
+      setState('idle');
     }
-    case 'Stop':
-      if (isFocused) {
-        setState('done');
-        showBubble('All done ✓', proj, { timeout: 5000 });
-      } else {
-        showBubble('Finished', proj, { timeout: 5000 });
-      }
-      break;
-    case 'SubagentStop':
-      retireMinion(e.session);
-      break;
-    case 'SessionEnd':
-      for (const m of minions) if (m.session === e.session) retireMinion(e.session);
-      if (e.session === focused) { focused = null; setState('idle'); }
-      break;
   }
   updateChip();
 }
 
+function dismissAsk(id) {
+  const s = sessions.get(id);
+  if (s) s.ask = null;
+  hideBubble();
+  settle();
+}
+
+function onEvent(e) {
+  if (!e || !e.event) return;
+  lastEventAt = performance.now();
+  const s = sessionFor(e);
+
+  // Anything a session does after asking means the ask was handled.
+  if (e.event !== 'Notification') s.ask = null;
+  if (!e.agent) s.awaitingAgents = false;
+  if (e.agent && e.event !== 'SubagentStop') {
+    s.agents.add(e.agent);
+    bindMinion(e.session, e.agent);
+  }
+
+  switch (e.event) {
+    case 'SessionStart':
+      if (state === 'sleeping') setState('idle');
+      break;
+    // Subagent tool calls (tagged with `agent`) belong to the minions, so the
+    // session keeps showing what its main agent is doing.
+    case 'UserPromptSubmit':
+    case 'PostToolUse':
+      if (!e.agent) s.activity = 'thinking';
+      break;
+    case 'PreToolUse':
+      if (e.tool === 'Agent' || e.tool === 'Task') spawnMinion(e.session);
+      if (!e.agent) s.activity = TOOL_STATES[e.tool] || 'thinking';
+      break;
+    case 'Notification': {
+      const msg = e.message || 'Claude needs your attention';
+      const idle = e.type === 'idle_prompt' || /waiting for your input/i.test(msg);
+      if (!idle) {
+        s.ask = msg;
+        s.askedAt = performance.now();
+      } else if (!pendingAsks().length) {
+        showBubble(msg, s.project, { timeout: 8000, session: e.session });
+        spring.v -= 2;
+      }
+      break;
+    }
+    case 'Stop':
+      // Background subagents outlive the main agent's turn.
+      s.agents = new Set(e.tasks || []);
+      s.awaitingAgents = s.agents.size > 0;
+      s.activity = s.awaitingAgents ? 'delegating' : 'idle';
+      if (s.agents.size || pendingAsks().length) break;
+      if (liveSession()) {
+        showBubble('Finished', s.project, { timeout: 5000 });
+      } else {
+        current = s.id;
+        setState('done');
+        showBubble('All done ✓', s.project, { timeout: 5000 });
+      }
+      break;
+    case 'SubagentStop':
+      retireMinion(e.session, e.agent);
+      s.agents.delete(e.agent);
+      if (s.awaitingAgents && !s.agents.size) {
+        s.awaitingAgents = false;
+        s.activity = 'idle';
+      }
+      break;
+    case 'SessionEnd':
+      for (const m of minions) if (m.session === e.session) retireMinion(e.session);
+      sessions.delete(e.session);
+      break;
+  }
+  settle();
+}
+
 api.onEvent(onEvent);
 window.__emit = onEvent; // handy for poking it from devtools
+window.__sessions = sessions;
 
 // ---------------------------------------------------------------------------
 // Mouse: click-through except over the blob/bubble, drag to move, click to boop
@@ -1493,7 +1580,8 @@ window.addEventListener('mouseup', (e) => {
     api.dragEnd();
     dragging = false;
   } else if (press) {
-    if (overBubble(e.clientX, e.clientY) || !bubbleEl.classList.contains('hidden')) hideBubble();
+    if (bubbleSession && bubbleEl.classList.contains('attention')) dismissAsk(bubbleSession);
+    else if (overBubble(e.clientX, e.clientY) || !bubbleEl.classList.contains('hidden')) hideBubble();
     poke(e.clientX, e.clientY);
     if (state === 'sleeping') setState('idle');
     const now = performance.now();
@@ -1622,8 +1710,10 @@ function frame(now) {
   time += step;
 
   if (!LOCKED && state === 'idle' && now - lastEventAt > SLEEP_AFTER_MS) setState('sleeping');
-  if (state === 'done' && now - stateSince > DONE_HOLD_MS) setState('idle');
-  if (state === 'dizzy' && now - stateSince > DIZZY_MS) setState('idle');
+  if (state === 'done' && now - stateSince > DONE_HOLD_MS) settle({ release: true });
+  if (state === 'dizzy' && now - stateSince > DIZZY_MS) settle({ release: true });
+  // Re-derive now and then so a session that died mid-task stops holding the blob.
+  if (WORKING.has(state) && now - stateSince > STALE_MS) settle();
   // A locked state that times out (like done) replays after a short rest.
   if (STATES[LOCKED] && state !== LOCKED && now - stateSince > 1500) setState(LOCKED);
 

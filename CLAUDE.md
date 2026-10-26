@@ -34,7 +34,7 @@ else is verified visually.
   - `looks.html` for light angles and the edge light.
   - `index.html?state=<name>&embed` for a single state. Other URL params: `light`, `rim=0`,
     `wave=old`.
-- **Debug globals:** `__emit(evt)`, `__poke(x, y)`, `__toggleStar()`, `__pin(id)`, `__minions`, `__circling`, `__sessions`.
+- **Debug globals:** `__emit(evt)`, `__poke(x, y)`, `__pin(id)`, `__minions`, `__circling`, `__sessions`.
 - **Restarting the app:** the running app only picks up `main.js` and `preload.js` changes after
   a restart (see `.ai/HANDOFF.md`).
 - **README clips:** after a visual change, regenerate them with `npm run capture` then

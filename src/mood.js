@@ -9,7 +9,6 @@ export const mood = {
   since: performance.now(),
   lastEventAt: performance.now(),
   target: { ...DEFAULTS },
-  starMode: false, // toggled by double-click
 };
 
 export const tintTarget = new THREE.Color('#ffffff');
@@ -31,15 +30,9 @@ export function setState(next) {
   const prev = mood.state;
   mood.state = next;
   mood.target = { ...DEFAULTS, ...STATES[next] };
-  if (mood.starMode) mood.target.star = 1;
   tintTarget.set(TINTS[next] || '#ffffff');
   if (next === 'done') startSpin(1, 0.9);
   if (next === 'dizzy') startSpin(2, 1.1, spin.dir);
   spring.v -= prev === 'sleeping' || next === 'attention' ? 3 : 1.2;
   for (const fn of listeners) fn();
-}
-
-export function toggleStar() {
-  mood.starMode = !mood.starMode;
-  mood.target.star = mood.starMode || mood.state === 'done' ? 1 : 0;
 }

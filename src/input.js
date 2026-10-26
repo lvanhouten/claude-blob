@@ -1,5 +1,5 @@
 import { api } from './env.js';
-import { mood, setState, toggleStar, spring, spin } from './mood.js';
+import { mood, setState, spring, spin } from './mood.js';
 import { blobScreen, eyesScreen } from './scene.js';
 import { poke } from './surface.js';
 import { hideBubble, overBubble, bubbleShown, bubbleAsks, bubbleOwner } from './ui.js';
@@ -8,7 +8,6 @@ import { hideBubble, overBubble, bubbleShown, bubbleAsks, bubbleOwner } from './
 export const pointer = { cursor: null };
 let interactive = false;
 let press = null;
-let lastClickAt = 0;
 let dragging = false;
 
 api.onCursor((p) => { pointer.cursor = p; });
@@ -48,10 +47,7 @@ export function initInput({ dismissAsk }) {
       else if (overBubble(e.clientX, e.clientY) || bubbleShown()) hideBubble();
       poke(e.clientX, e.clientY);
       if (mood.state === 'sleeping') setState('idle');
-      const now = performance.now();
-      if (now - lastClickAt < 350) toggleStar();
-      lastClickAt = now;
-      mood.lastEventAt = now;
+      mood.lastEventAt = performance.now();
     }
     press = null;
   });
@@ -73,7 +69,7 @@ const DIZZY_TURNS = 3;
 
 export function trackCircles(now) {
   const { cursor } = pointer;
-  if (mood.state !== 'idle' || mood.starMode || !cursor) {
+  if (mood.state !== 'idle' || !cursor) {
     circling.last = null;
     circling.total = 0;
     return;

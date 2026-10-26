@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { api, params, LOCKED } from './env.js';
 import { STATES, LABELS, WORKING, SLEEP_AFTER_MS, DONE_HOLD_MS, DIZZY_MS, STALE_MS } from './states.js';
-import { P, mood, setState, toggleStar, onStateChange, tintTarget, spring, spin } from './mood.js';
+import { P, mood, setState, onStateChange, tintTarget, spring, spin } from './mood.js';
 import { renderer, scene, camera, root, body, ROOT_Y, ROOT_SCALE, updateLights, view, toScreen, blobScreen, eyesScreen } from './scene.js';
 import { SHAPE, skin, jiggle, JIGGLE, poke, ARMS, armDirs, arms, updateArmAnchors, deform } from './surface.js';
 import { bodyMat, halftone, HALFTONE_DOTS_PER_UNIT, HALFTONE_WAVE } from './materials.js';
@@ -102,7 +102,6 @@ Object.assign(window, {
   __pin: tracker.pin,
   __minions: minions,
   __poke: poke,
-  __toggleStar: toggleStar,
   __circling: circling,
   __eyesScreen: eyesScreen,
 });
@@ -324,8 +323,7 @@ function frame(now) {
   renderer.render(scene, camera);
 }
 
-if (LOCKED === 'star') toggleStar();
-else if (STATES[LOCKED]) setState(LOCKED);
+if (STATES[LOCKED]) setState(LOCKED);
 
 refreshChip();
 requestAnimationFrame(frame);

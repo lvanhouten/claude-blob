@@ -5,7 +5,7 @@ import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // Falls back to no-ops so the page can be previewed in a plain browser.
 const api = window.blob ?? {
-  onEvent() {}, onCursor() {}, onLight() {}, setIgnore() {}, dragStart() {}, dragEnd() {}, contextMenu() {},
+  onEvent() {}, onCursor() {}, onLight() {}, onPin() {}, setSessions() {}, setIgnore() {}, dragStart() {}, dragEnd() {}, contextMenu() {},
 };
 
 // Gallery mode: ?state=<name> holds one animation on a loop, ?embed hides the
@@ -1361,6 +1361,7 @@ let lastEventAt = performance.now();
 // of them, so no session's events can overwrite another's.
 const sessions = new Map(); // id -> { id, project, activity, at, ask, askedAt, agents, awaitingAgents }
 let current = null; // id of the session the blob is showing
+let pinned = null; // id of the one session to follow, or null to follow whichever matters most
 const tintTarget = new THREE.Color('#ffffff');
 const spring = { x: 0, v: 0 };
 const spin = { t: 1, turns: 1, dir: 1, secs: 0.9 };
@@ -1408,14 +1409,22 @@ function sessionFor(e) {
   return s;
 }
 
+function watched(id) {
+  return !pinned || id === pinned;
+}
+
+function watchedSessions() {
+  return [...sessions.values()].filter((s) => watched(s.id));
+}
+
 function pendingAsks() {
-  return [...sessions.values()].filter((s) => s.ask).sort((a, b) => a.askedAt - b.askedAt);
+  return watchedSessions().filter((s) => s.ask).sort((a, b) => a.askedAt - b.askedAt);
 }
 
 function liveSession() {
   const now = performance.now();
   let live = null;
-  for (const s of sessions.values()) {
+  for (const s of watchedSessions()) {
     if (s.activity !== 'idle' && now - s.at < STALE_MS && (!live || s.at > live.at)) live = s;
   }
   return live;
@@ -1423,9 +1432,31 @@ function liveSession() {
 
 function latestSession() {
   let latest = null;
-  for (const s of sessions.values()) if (!latest || s.at > latest.at) latest = s;
+  for (const s of watchedSessions()) if (!latest || s.at > latest.at) latest = s;
   return latest;
 }
+
+// Menu labels for the session picker: the project, plus a short id when two share one.
+function publishSessions() {
+  const list = [...sessions.values()];
+  const dupes = (p) => list.filter((s) => s.project === p).length > 1;
+  api.setSessions({
+    pinned,
+    sessions: list.map((s) => ({
+      id: s.id,
+      label: (s.project || 'unknown') + (dupes(s.project) ? ` (${s.id.slice(0, 8)})` : ''),
+    })),
+  });
+}
+
+function pinSession(id) {
+  pinned = sessions.has(id) ? id : null;
+  if (bubbleSession && !watched(bubbleSession)) hideBubble();
+  publishSessions();
+  settle();
+}
+
+api.onPin(pinSession);
 
 // Points the blob at whatever matters most: the oldest unanswered ask, else the
 // most recently active session, else stays on the last one shown. `release` lets a transient state (done, dizzy)
@@ -1442,7 +1473,7 @@ function settle({ release = false } = {}) {
   } else {
     if (bubbleEl.classList.contains('attention')) hideBubble();
     const live = liveSession();
-    if (!sessions.has(current)) current = latestSession()?.id ?? null;
+    if (!sessions.has(current) || !watched(current)) current = latestSession()?.id ?? null;
     if (live) {
       current = live.id;
       setState(live.activity);
@@ -1462,20 +1493,22 @@ function dismissAsk(id) {
 
 function onEvent(e) {
   if (!e || !e.event) return;
-  lastEventAt = performance.now();
+  const isNew = !sessions.has(e.session);
   const s = sessionFor(e);
+  const seen = watched(s.id);
+  if (seen) lastEventAt = performance.now();
 
   // Anything a session does after asking means the ask was handled.
   if (e.event !== 'Notification') s.ask = null;
   if (!e.agent) s.awaitingAgents = false;
   if (e.agent && e.event !== 'SubagentStop') {
     s.agents.add(e.agent);
-    bindMinion(e.session, e.agent);
+    if (seen) bindMinion(e.session, e.agent);
   }
 
   switch (e.event) {
     case 'SessionStart':
-      if (state === 'sleeping') setState('idle');
+      if (seen && state === 'sleeping') setState('idle');
       break;
     // Subagent tool calls (tagged with `agent`) belong to the minions, so the
     // session keeps showing what its main agent is doing.
@@ -1484,7 +1517,7 @@ function onEvent(e) {
       if (!e.agent) s.activity = 'thinking';
       break;
     case 'PreToolUse':
-      if (e.tool === 'Agent' || e.tool === 'Task') spawnMinion(e.session);
+      if (seen && (e.tool === 'Agent' || e.tool === 'Task')) spawnMinion(e.session);
       if (!e.agent) s.activity = TOOL_STATES[e.tool] || 'thinking';
       break;
     case 'Notification': {
@@ -1493,7 +1526,7 @@ function onEvent(e) {
       if (!idle) {
         s.ask = msg;
         s.askedAt = performance.now();
-      } else if (!pendingAsks().length) {
+      } else if (seen && !pendingAsks().length) {
         showBubble(msg, s.project, { timeout: 8000, session: e.session });
         spring.v -= 2;
       }
@@ -1504,7 +1537,7 @@ function onEvent(e) {
       s.agents = new Set(e.tasks || []);
       s.awaitingAgents = s.agents.size > 0;
       s.activity = s.awaitingAgents ? 'delegating' : 'idle';
-      if (s.agents.size || pendingAsks().length) break;
+      if (!seen || s.agents.size || pendingAsks().length) break;
       if (liveSession()) {
         showBubble('Finished', s.project, { timeout: 5000 });
       } else {
@@ -1524,14 +1557,18 @@ function onEvent(e) {
     case 'SessionEnd':
       for (const m of minions) if (m.session === e.session) retireMinion(e.session);
       sessions.delete(e.session);
+      if (pinned === e.session) pinned = null;
+      publishSessions();
       break;
   }
+  if (isNew && e.event !== 'SessionEnd') publishSessions();
   settle();
 }
 
 api.onEvent(onEvent);
 window.__emit = onEvent; // handy for poking it from devtools
 window.__sessions = sessions;
+window.__pin = pinSession;
 
 // ---------------------------------------------------------------------------
 // Mouse: click-through except over the blob/bubble, drag to move, click to boop

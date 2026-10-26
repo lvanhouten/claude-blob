@@ -132,10 +132,27 @@ function trayIcon() {
   return nativeImage.createFromBitmap(buf, { width: size, height: size });
 }
 
+// The renderer tracks the sessions; this mirrors its list and pick for the menu.
+let sessionList = { pinned: null, sessions: [] };
+
+function pin(id) {
+  if (win && !win.isDestroyed()) win.webContents.send('pin', id);
+}
+
+function sessionMenu() {
+  const { pinned, sessions } = sessionList;
+  return [
+    { label: 'Auto', type: 'radio', checked: !pinned, click: () => pin(null) },
+    ...(sessions.length ? [{ type: 'separator' }] : []),
+    ...sessions.map(({ id, label }) => ({ label, type: 'radio', checked: pinned === id, click: () => pin(id) })),
+  ];
+}
+
 function menu() {
   return Menu.buildFromTemplate([
     { label: 'Reset position', click: () => { const p = homePosition(); win.setPosition(p.x, p.y); savePosition(); } },
     { label: 'Test notification', click: () => send({ event: 'Notification', session: 'test', cwd: 'claude-blob', message: 'Claude needs your permission to use Bash' }) },
+    { label: 'Session', submenu: sessionMenu() },
     { label: 'Light', submenu: LIGHTS.map(([mode, label]) => ({ label, type: 'radio', checked: light === mode, click: () => setLight(mode) })) },
     { label: 'Animation gallery', click: openGallery },
     { type: 'separator' },
@@ -205,7 +222,12 @@ ipcMain.on('drag-end', () => {
   savePosition();
 });
 
-ipcMain.on('context-menu', () => menu().popup({ window: win }));
+ipcMain.on('sessions', (_e, list) => {
+  sessionList = list;
+  if (tray) tray.setContextMenu(menu());
+});
+
+ipcMain.on('context-menu',() => menu().popup({ window: win }));
 
 app.whenReady().then(() => {
   createWindow();

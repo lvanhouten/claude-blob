@@ -1376,9 +1376,10 @@ function projectOf(cwd) {
 function updateChip() {
   const label = LABELS[state];
   const project = sessions.get(current)?.project;
-  const text = [label, project].filter(Boolean).join(' · ');
-  chipEl.textContent = text;
-  chipEl.classList.toggle('hidden', !text);
+  chipEl.replaceChildren(...[[label, 'action'], [project, 'repo']]
+    .filter(([text]) => text)
+    .map(([text, cls]) => Object.assign(document.createElement('div'), { className: cls, textContent: text })));
+  chipEl.classList.toggle('hidden', !label && !project);
 }
 
 function setState(next) {

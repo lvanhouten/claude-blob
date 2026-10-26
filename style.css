@@ -141,15 +141,25 @@ html, body {
   transform: translateX(-50%);
   max-width: 260px;
   padding: 3px 10px;
-  border-radius: 999px;
+  border-radius: 9px;
   background: rgba(40, 24, 16, 0.72);
   color: #fff3ea;
   font-size: 11.5px;
+  line-height: 1.3;
+  text-align: center;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+#chip > div {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: opacity 0.3s ease;
-  pointer-events: none;
+}
+
+#chip .repo {
+  font-size: 10px;
+  opacity: 0.7;
 }
 
 #chip.hidden { opacity: 0; }

@@ -15,9 +15,13 @@ let dragTimer = null;
 
 if (!app.requestSingleInstanceLock()) app.quit();
 
+// The page always lays out at WIN_W x WIN_H; scale grows the window and zooms the page to match.
+const size = () => ({ width: Math.round(WIN_W * settings.scale), height: Math.round(WIN_H * settings.scale) });
+
 function homePosition() {
   const { workArea } = screen.getPrimaryDisplay();
-  return { x: workArea.x + workArea.width - WIN_W - 24, y: workArea.y + workArea.height - WIN_H };
+  const { width, height } = size();
+  return { x: workArea.x + workArea.width - width - 24, y: workArea.y + workArea.height - height };
 }
 
 // Where he was last left, so he reopens there. Saved after each drag, reset and quit.
@@ -26,8 +30,9 @@ const positionFile = () => path.join(app.getPath('userData'), 'window-position.j
 // The window's center must land in some display's work area; otherwise (monitor
 // unplugged, resolution changed) he'd open off-screen.
 function onScreen({ x, y }) {
-  const cx = x + WIN_W / 2;
-  const cy = y + WIN_H / 2;
+  const { width, height } = size();
+  const cx = x + width / 2;
+  const cy = y + height / 2;
   return screen.getAllDisplays().some(({ workArea: a }) =>
     cx >= a.x && cx <= a.x + a.width && cy >= a.y && cy <= a.y + a.height);
 }
@@ -43,7 +48,7 @@ function startPosition() {
 // Moves always restate the size: setPosition onto a monitor with a different
 // scale factor keeps the old physical size, stretching the scene past the CSS layout.
 function place(x, y) {
-  win.setBounds({ x, y, width: WIN_W, height: WIN_H });
+  win.setBounds({ x, y, ...size() });
 }
 
 function savePosition() {
@@ -56,15 +61,32 @@ function savePosition() {
 // the middle of whichever monitor he's on.
 const LIGHTS = [['auto', 'Auto (from screen center)'], ['upper-left', 'Upper left'], ['upper-right', 'Upper right'],
   ['top', 'Top'], ['front', 'Front'], ['side', 'Side']];
+const SCALES = [[0.75, 'Small'], [1, 'Medium'], [1.25, 'Large']];
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
-let light = 'auto';
-try { light = JSON.parse(fs.readFileSync(settingsFile(), 'utf8')).light ?? light; } catch { /* defaults */ }
+const settings = { light: 'auto', scale: 1 };
+try { Object.assign(settings, JSON.parse(fs.readFileSync(settingsFile(), 'utf8'))); } catch { /* defaults */ }
+if (!SCALES.some(([s]) => s === settings.scale)) settings.scale = 1;
+
+function saveSettings() {
+  try { fs.writeFileSync(settingsFile(), JSON.stringify(settings)); } catch { /* not worth crashing over */ }
+  if (tray) tray.setContextMenu(menu());
+}
 
 function setLight(mode) {
-  light = mode;
-  try { fs.writeFileSync(settingsFile(), JSON.stringify({ light })); } catch { /* not worth crashing over */ }
+  settings.light = mode;
+  saveSettings();
   sendLight();
-  if (tray) tray.setContextMenu(menu());
+}
+
+// Resizes around his feet, so he stays standing where he was.
+function setScale(scale) {
+  const b = win.getBounds();
+  settings.scale = scale;
+  saveSettings();
+  const { width, height } = size();
+  place(Math.round(b.x + (b.width - width) / 2), b.y + b.height - height);
+  win.webContents.setZoomFactor(scale);
+  savePosition();
 }
 
 // Where he sits on his monitor, -1..1 from left to right and top to bottom.
@@ -74,7 +96,7 @@ function sendLight() {
   const c = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
   const { workArea: a } = screen.getDisplayNearestPoint(c);
   win.webContents.send('light', {
-    mode: light,
+    mode: settings.light,
     x: Math.max(-1, Math.min(1, ((c.x - a.x) / a.width) * 2 - 1)),
     y: Math.max(-1, Math.min(1, ((c.y - a.y) / a.height) * 2 - 1)),
   });
@@ -84,8 +106,7 @@ function createWindow() {
   const { x, y } = startPosition();
   win = new BrowserWindow({
     x, y,
-    width: WIN_W,
-    height: WIN_H,
+    ...size(),
     transparent: true,
     backgroundColor: '#00000000',
     frame: false,
@@ -110,8 +131,11 @@ function createWindow() {
   // so the renderer can switch this off while the cursor is over the blob.
   win.setIgnoreMouseEvents(true, { forward: true });
   win.loadFile('index.html');
-  win.webContents.on('did-finish-load', sendLight);
-  win.on('move', () => { if (light === 'auto') sendLight(); });
+  win.webContents.on('did-finish-load', () => {
+    win.webContents.setZoomFactor(settings.scale);
+    sendLight();
+  });
+  win.on('move', () => { if (settings.light === 'auto') sendLight(); });
 
   // Feed the cursor position to the renderer so the eyes can follow it anywhere on screen.
   let last = '';
@@ -119,7 +143,7 @@ function createWindow() {
     if (!win || win.isDestroyed()) return;
     const p = screen.getCursorScreenPoint();
     const b = win.getBounds();
-    const msg = { x: p.x - b.x, y: p.y - b.y };
+    const msg = { x: (p.x - b.x) / settings.scale, y: (p.y - b.y) / settings.scale };
     const key = msg.x + ',' + msg.y;
     if (key !== last) {
       last = key;
@@ -149,7 +173,8 @@ function menu() {
     { label: 'Reset position', click: () => { const p = homePosition(); place(p.x, p.y); savePosition(); } },
     { label: 'Test notification', click: () => send({ event: 'Notification', session: 'test', cwd: 'claude-blob', message: 'Claude needs your permission to use Bash' }) },
     { label: 'Session', submenu: sessionMenu() },
-    { label: 'Light', submenu: LIGHTS.map(([mode, label]) => ({ label, type: 'radio', checked: light === mode, click: () => setLight(mode) })) },
+    { label: 'Light', submenu: LIGHTS.map(([mode, label]) => ({ label, type: 'radio', checked: settings.light === mode, click: () => setLight(mode) })) },
+    { label: 'Size', submenu: SCALES.map(([scale, label]) => ({ label, type: 'radio', checked: settings.scale === scale, click: () => setScale(scale) })) },
     { label: 'Animation gallery', click: openGallery },
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() },

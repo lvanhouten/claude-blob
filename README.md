@@ -5,14 +5,41 @@ session is doing, and pops up a speech bubble when Claude needs you.
 
 <p align="center"><img src="docs/media/done.webp" width="240" alt="The blob spinning into a star when a turn finishes"></p>
 
-```
-npm install
-npm start        # launch the blob (bottom-right of your primary screen)
-npm run demo     # play a fake session to see every animation
-```
+## Install
+
+You need [Node.js](https://nodejs.org) 22 or later, on your `PATH` so Claude Code's hooks can run it.
+
+1. Clone this repo and install its dependencies:
+
+   ```
+   git clone https://github.com/lvanhouten/claude-blob.git
+   cd claude-blob
+   npm install
+   ```
+
+2. Start the blob. It appears in the bottom-right of your primary screen.
+
+   ```
+   npm start
+   ```
+
+   Or build a standalone Windows app with `npm run package` and run
+   `dist\claude-blob-win32-x64\claude-blob.exe`. To start it when you log in, put a shortcut
+   to that exe in your Startup folder (press Win+R and run `shell:startup`).
+
+3. [Wire up Claude Code](#wiring-up-claude-code) so the blob hears about your sessions.
+
+4. Check it works: send a prompt in Claude Code and the blob should start thinking. If nothing
+   happens, open <http://127.0.0.1:7777/recent> to see the last events the blob received, and
+   use **Test notification** in the tray menu to check the blob itself.
+
+`npm run demo` plays a fake session to show every animation, and `npm test` runs the tests.
+
+## Using it
 
 - **Drag** the blob to move it, **click** to jiggle it like jello (or dismiss a bubble), **right-click** (or use the tray icon) for the menu.
 - While it's idle, **circle your cursor around its eyes three times** and it spins itself dizzy.
+- **Session** in the menu picks which Claude Code session the blob follows: **Auto**, or one session by its project name.
 - **Light** in the menu sets where the light comes from: a fixed angle, or **Auto**, which lights him from the center of whichever monitor he's on.
 - Clicks anywhere else pass straight through to the windows underneath.
 - **Animation gallery** (tray or right-click menu, or open `gallery.html` through any local web server) shows every animation looping side by side.
@@ -40,7 +67,8 @@ can't change or stall a session, even when the blob isn't running.
 
 ## What it shows
 
-The blob follows the session you most recently sent a prompt in.
+On **Auto**, the blob shows the oldest question still waiting for you, and otherwise the session
+that was active most recently. Pick a session in the **Session** menu to follow only that one.
 
 | Claude Code is…                    | The blob…                              |
 |------------------------------------|----------------------------------------|

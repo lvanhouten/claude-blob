@@ -54,23 +54,26 @@ function starEdge(a) {
 // rounder, with a sharper point. tip rounds off the very point, so the mesh
 // doesn't fold there.
 // bulge/rise: how much each foot puffs out, and how low on the wall the
-// puffing starts (higher = only near the hem).
+// puffing starts (higher = only near the hem). puffTip rounds the puff's
+// notch far wider than the hem's, or it creases the wall above each notch.
 // roll: the radius of the thick, rounded lip the hem curls under around,
 // which takes up rollShare of the underside's mesh. cap: how high the middle
 // of the underside sits.
 const GHOST = {
   n: 5, box: 2.2, taper: 0.16, wallDy: 0.82, bulge: 0.07, rise: 2,
-  scallop: 0.3, arc: 0.45, tip: 0.3, roll: 0.12, rollShare: 0.4, cap: 0.24,
+  scallop: 0.3, arc: 0.45, tip: 0.07, puffTip: 0.45, roll: 0.12, rollShare: 0.4, cap: 0.24,
 };
 
 // How far down the hem reaches at a point x (radians) along its run of feet:
 // 1 at the bottom of a foot, 0 at the top of the notch between two.
-function hemLobe(x) {
+function hemLobe(x, t = GHOST.tip) {
   const s = (((x / (Math.PI * 2)) % 1) + 1) % 1;
-  const f = (1 - (2 * s - 1) ** 2) ** GHOST.arc;
-  // A smooth corner instead of a hard V where two feet meet.
-  const t = GHOST.tip;
-  return (Math.sqrt(f * f + t * t) - t) / (Math.sqrt(1 + t * t) - t);
+  const q = 1 - (2 * s - 1) ** 2;
+  // Round the notch before the power: after it, the arc's vertical end
+  // survives as a cusp.
+  const k = GHOST.arc / 2;
+  const lo = (t * t) ** k;
+  return ((q * q + t * t) ** k - lo) / ((1 + t * t) ** k - lo);
 }
 const CAP_HL = Math.sqrt(1 - GHOST.wallDy ** 2); // sphere width where the wall ends
 // The most the skirt's wobble can reach, whatever the state asks for: amp is
@@ -102,7 +105,17 @@ export function updateArmAnchors() {
 
 export function surface(dx, dy, dz, out) {
   const hl = Math.hypot(dx, dz);
-  const w = dy < 0 ? 1 - hl : 0; // 0 at the equator, 1 at the bottom pole
+  // Feet roll clockwise around the hem (seen from above), faster when busy.
+  let puff = 0, hem = -SHAPE.floor, ny = dy;
+  if (dy < 0) {
+    const around = GHOST.n * Math.atan2(dz, dx) + Math.PI - skin.hemPhase;
+    hem = -SHAPE.floor - GHOST.scallop * (1 - hemLobe(around)); // feet reach the floor
+    puff = GHOST.bulge * hemLobe(around, GHOST.puffTip);
+    // The skin's wobble and puff go by true height, not by the share of each
+    // foot's own wall: the notch's shorter wall would crease the whole wall.
+    ny = dy * (hem - GHOST.roll) / (-SHAPE.floor - GHOST.roll);
+  }
+  const w = ny < 0 ? 1 - Math.sqrt(1 - ny * ny) : 0; // 0 at the equator, 1 at the bottom pole
   // Smooth dome on top; the wobble lives in the skirt.
   const skirt = THREE.MathUtils.smoothstep(w, 0, 0.45);
   // Busy states wobble faster, but no bigger or lumpier than WOBBLE allows, so
@@ -110,11 +123,11 @@ export function surface(dx, dy, dz, out) {
   // right at the edge where the wall turns under makes a little ledge that
   // catches the light.
   const freq = Math.min(P.freq, WOBBLE.freq);
-  const calm = 1 - WOBBLE.hemFade * THREE.MathUtils.smoothstep(-dy / GHOST.wallDy, 0.4, 1);
-  let r = 1 + noise.noise4d(dx * freq, dy * freq, dz * freq, skin.phase) * Math.min(P.amp, WOBBLE.amp) * (0.12 + 0.88 * skirt) * calm;
+  const calm = 1 - WOBBLE.hemFade * THREE.MathUtils.smoothstep(-ny / GHOST.wallDy, 0.4, 1);
+  let r = 1 + noise.noise4d(dx * freq, ny * freq, dz * freq, skin.phase) * Math.min(P.amp, WOBBLE.amp) * (0.12 + 0.88 * skirt) * calm;
   // Jello ripple spreading out from where he was poked.
   if (jiggle.now > 0.001) {
-    const dist = 1 - (dx * jiggle.origin.x + dy * jiggle.origin.y + dz * jiggle.origin.z);
+    const dist = 1 - (dx * jiggle.origin.x + ny * jiggle.origin.y + dz * jiggle.origin.z);
     r += jiggle.now * Math.sin(JIGGLE.freq * jiggle.t - JIGGLE.spread * dist) * Math.exp(-dist * 0.6);
   }
 
@@ -128,10 +141,6 @@ export function surface(dx, dy, dz, out) {
     y = dy * s * SHAPE.sy + SHAPE.peak * dy ** 6;
     z = dz * s * taper;
   } else {
-    // Feet roll clockwise around the hem (seen from above), faster when busy.
-    const ang = Math.atan2(dz, dx);
-    const lobe = hemLobe(GHOST.n * ang + Math.PI - skin.hemPhase);
-    const hem = -SHAPE.floor - GHOST.scallop * (1 - lobe); // feet reach the floor
     const ux = hl > 1e-6 ? dx / hl : 0;
     const uz = hl > 1e-6 ? dz / hl : 0;
     // Height down the wall follows dy itself, the same measure the dome uses,
@@ -143,7 +152,7 @@ export function surface(dx, dy, dz, out) {
     const roll = GHOST.roll;
     if (-dy < GHOST.wallDy) {
       const f = -dy / GHOST.wallDy;
-      rad = (1 + GHOST.bulge * lobe * f ** GHOST.rise) * r; // doughy feet
+      rad = (1 + puff * (-ny / GHOST.wallDy) ** GHOST.rise) * r; // doughy feet
       y = -f * (hem - roll);
     } else {
       // The underside: tucks in from the hem to the bottom pole. It rises to
@@ -151,7 +160,7 @@ export function surface(dx, dy, dz, out) {
       // from each point of the hem left steep fins inside the notches, which
       // caught the light.
       const c = 1 - hl / CAP_HL;
-      const edge = (1 + GHOST.bulge * lobe) * r;
+      const edge = (1 + puff * ((hem - roll) / (-SHAPE.floor - roll)) ** GHOST.rise) * r;
       const middle = SHAPE.floor + GHOST.scallop + GHOST.cap;
       if (c < GHOST.rollShare) {
         // A doughy lip: the wall curls round a quarter circle to a flat bottom...

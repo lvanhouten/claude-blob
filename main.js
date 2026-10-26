@@ -40,6 +40,12 @@ function startPosition() {
   return homePosition();
 }
 
+// Moves always restate the size: setPosition onto a monitor with a different
+// scale factor keeps the old physical size, stretching the scene past the CSS layout.
+function place(x, y) {
+  win.setBounds({ x, y, width: WIN_W, height: WIN_H });
+}
+
 function savePosition() {
   if (!win || win.isDestroyed()) return;
   const [x, y] = win.getPosition();
@@ -93,6 +99,12 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
     },
   });
+  place(x, y);
+  screen.on('display-metrics-changed', () => {
+    if (!win || win.isDestroyed()) return;
+    const [wx, wy] = win.getPosition();
+    place(wx, wy);
+  });
   win.setAlwaysOnTop(true, 'screen-saver');
   // Clicks fall through to whatever is underneath; mouse moves are still forwarded
   // so the renderer can switch this off while the cursor is over the blob.
@@ -134,7 +146,7 @@ function sessionMenu() {
 
 function menu() {
   return Menu.buildFromTemplate([
-    { label: 'Reset position', click: () => { const p = homePosition(); win.setPosition(p.x, p.y); savePosition(); } },
+    { label: 'Reset position', click: () => { const p = homePosition(); place(p.x, p.y); savePosition(); } },
     { label: 'Test notification', click: () => send({ event: 'Notification', session: 'test', cwd: 'claude-blob', message: 'Claude needs your permission to use Bash' }) },
     { label: 'Session', submenu: sessionMenu() },
     { label: 'Light', submenu: LIGHTS.map(([mode, label]) => ({ label, type: 'radio', checked: light === mode, click: () => setLight(mode) })) },
@@ -196,7 +208,7 @@ ipcMain.on('drag-start', () => {
   clearInterval(dragTimer);
   dragTimer = setInterval(() => {
     const c = screen.getCursorScreenPoint();
-    win.setPosition(c.x - dragOffset.x, c.y - dragOffset.y);
+    place(c.x - dragOffset.x, c.y - dragOffset.y);
   }, 10);
 });
 

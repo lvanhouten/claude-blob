@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, Menu, Tray, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Menu, Tray } = require('electron');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
@@ -6,6 +6,7 @@ const path = require('path');
 const PORT = Number(process.env.BLOB_PORT) || 7777;
 const WIN_W = 300;
 const WIN_H = 380;
+const ICON = path.join(__dirname, 'assets', 'icon.ico');
 
 let win = null;
 let tray = null;
@@ -87,6 +88,7 @@ function createWindow() {
     skipTaskbar: true,
     alwaysOnTop: true,
     focusable: false,
+    icon: ICON,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
@@ -112,24 +114,6 @@ function createWindow() {
       win.webContents.send('cursor', msg);
     }
   }, 50);
-}
-
-function trayIcon() {
-  // 16x16 orange dot, drawn by hand so the app ships without image assets.
-  const size = 16;
-  const buf = Buffer.alloc(size * size * 4);
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const d = Math.hypot(x - 7.5, y - 8.5);
-      const a = Math.max(0, Math.min(1, 7 - d));
-      const i = (y * size + x) * 4;
-      buf[i] = 76 * a;      // B
-      buf[i + 1] = 140 * a; // G
-      buf[i + 2] = 255 * a; // R
-      buf[i + 3] = 255 * a; // A
-    }
-  }
-  return nativeImage.createFromBitmap(buf, { width: size, height: size });
 }
 
 // The renderer tracks the sessions; this mirrors its list and pick for the menu.
@@ -166,7 +150,7 @@ let gallery = null;
 
 function openGallery() {
   if (gallery && !gallery.isDestroyed()) return gallery.focus();
-  gallery = new BrowserWindow({ width: 1120, height: 900, title: 'Blob animations', autoHideMenuBar: true });
+  gallery = new BrowserWindow({ width: 1120, height: 900, title: 'Blob animations', autoHideMenuBar: true, icon: ICON });
   gallery.loadFile('gallery.html');
 }
 
@@ -232,7 +216,8 @@ ipcMain.on('context-menu',() => menu().popup({ window: win }));
 app.whenReady().then(() => {
   createWindow();
   startServer();
-  tray = new Tray(trayIcon());
+  // Electron swaps in tray@2x.png on high-DPI screens.
+  tray = new Tray(path.join(__dirname, 'assets', 'tray.png'));
   tray.setToolTip('Claude Blob');
   tray.setContextMenu(menu());
 });

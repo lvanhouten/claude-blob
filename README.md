@@ -104,3 +104,10 @@ The clips above are rendered frame by frame on a fake clock, then encoded with P
 npm run capture            # or: npx electron tools/capture.js done dizzy
 python tools/encode.py     # writes docs/media/*.webp
 ```
+
+The app icon is traced from one rendered idle frame. After changing his shape or colors, redraw it:
+
+```
+npx electron tools/icon.js   # renders the frame
+python tools/icon.py         # writes assets/icon.ico, tray.png and tray@2x.png
+```

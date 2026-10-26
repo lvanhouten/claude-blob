@@ -3,6 +3,9 @@
 Electron desktop pet: a 3D blob (Three.js) that reacts to Claude Code hooks. `README.md` has setup
 and usage.
 
+`main.js` is the Electron main process and hook server. The renderer lives in `src/`, one ES module
+per system (surface, props, minions, sessions, ...) wired together in `src/renderer.js`.
+
 ## Notes for agents
 
 Working notes, handoffs and scratch docs go in `.ai/` (gitignored). Read `.ai/HANDOFF.md` before
@@ -23,7 +26,8 @@ tuning it, the owner's design references, and the planned next work.
 
 ## Verifying changes
 
-There are no tests; verification is visual.
+`npm test` covers session tracking (`src/sessions.js`, which runs without a DOM or WebGL). Everything
+else is verified visually.
 
 - **Preview:** start `blob-preview` (static server on :5179) and open:
   - `gallery.html` for every animation.

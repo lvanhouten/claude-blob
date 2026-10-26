@@ -6,7 +6,8 @@
   "scripts": {
     "start": "electron .",
     "demo": "node demo.js",
-    "capture": "electron tools/capture.js"
+    "capture": "electron tools/capture.js",
+    "package": "electron-packager . claude-blob --platform=win32 --arch=x64 --out=dist --overwrite --ignore=^/docs --ignore=^/tools --ignore=^/dist --ignore=^/\\.ai"
   },
   "keywords": [],
   "author": "",
@@ -16,6 +17,7 @@
     "three": "^0.186.1"
   },
   "devDependencies": {
+    "@electron/packager": "^20.3.0",
     "electron": "^45.0.0"
   }
 }

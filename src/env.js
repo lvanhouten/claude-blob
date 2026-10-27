@@ -1,6 +1,6 @@
 // Falls back to no-ops so the page can be previewed in a plain browser.
 export const api = window.blob ?? {
-  onEvent() {}, onCursor() {}, onLight() {}, onPin() {}, setSessions() {}, setIgnore() {}, dragStart() {}, dragEnd() {}, contextMenu() {},
+  onEvent() {}, onCursor() {}, onLight() {}, onColor() {}, onPin() {}, setSessions() {}, setIgnore() {}, dragStart() {}, dragEnd() {}, contextMenu() {},
 };
 
 // Gallery mode: ?state=<name> holds one animation on a loop, ?embed hides the

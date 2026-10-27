@@ -1,0 +1,159 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'">
+  <title>Blob color</title>
+  <style>
+    :root {
+      --bg: #f4ede6;
+      --card: #e6dbd0;
+      --ink: #2e2018;
+      --muted: #7a6455;
+      --accent: #c2622c;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1c1917;
+        --card: #2a2420;
+        --ink: #f5ebe3;
+        --muted: #a8968a;
+        --accent: #ff9a5c;
+      }
+    }
+    * { box-sizing: border-box; }
+    html { overflow: hidden; } /* the window is sized to fit the page */
+    body {
+      margin: 0;
+      padding: 16px;
+      background: var(--bg);
+      color: var(--ink);
+      font: 13px "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+      user-select: none;
+    }
+    .top { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
+    /* The lit side and the shade side, split the way the cel band splits him. */
+    #preview {
+      width: 56px; height: 56px; border-radius: 50%; flex: none;
+      box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08);
+    }
+    #hex {
+      width: 100%; padding: 6px 8px; border-radius: 8px;
+      border: 1px solid var(--card); background: var(--card); color: var(--ink);
+      font: 13px "Cascadia Code", Consolas, monospace;
+    }
+    #hex:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+    label { display: block; margin: 0 0 10px; color: var(--muted); }
+    input[type=range] {
+      -webkit-appearance: none; appearance: none;
+      display: block; width: 100%; height: 14px; margin: 4px 0 0; border-radius: 7px;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%;
+      background: #fff; box-shadow: 0 0 0 2px var(--ink);
+    }
+    .swatches { display: flex; gap: 6px; margin: 14px 0 12px; flex-wrap: wrap; }
+    .swatches button {
+      width: 24px; height: 24px; border-radius: 50%; border: 0; padding: 0; cursor: pointer;
+      box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.1);
+    }
+    .swatches button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .actions { display: flex; gap: 8px; }
+    .actions button {
+      padding: 6px 14px; border-radius: 8px; border: 0; cursor: pointer;
+      background: var(--card); color: var(--ink); font: inherit;
+    }
+    .actions button:hover { color: var(--accent); }
+    .actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    #reset { margin-right: auto; }
+    #apply { background: var(--accent); color: var(--bg); font-weight: 600; }
+    #apply:hover { color: var(--bg); filter: brightness(1.08); }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div id="preview"></div>
+    <input id="hex" spellcheck="false" maxlength="7" aria-label="Hex color">
+  </div>
+  <label>Hue <input type="range" id="h" min="0" max="360" step="1"></label>
+  <label>Lightness <input type="range" id="l" step="0.005"></label>
+  <label>Saturation <input type="range" id="c" min="0" max="0.32" step="0.002"></label>
+  <div class="swatches" id="swatches"></div>
+  <div class="actions">
+    <button id="reset">Reset</button>
+    <button id="cancel">Cancel</button>
+    <button id="apply">Apply</button>
+  </div>
+  <script type="module">
+    import { paletteFrom, hexToOklch, oklchToHex, clampBase, isHex, L_MIN, L_MAX, DEFAULT_COLOR } from './src/palette.js';
+
+    // Falls back to a no-op so the page can be previewed in a plain browser.
+    const api = window.blob ?? { setColor() {} };
+    const query = new URLSearchParams(location.search);
+    const SWATCHES = ['#ff8642', '#ff6fa8', '#e03040', '#ffd23f', '#2fbf71', '#2bb5c4', '#3a7bff', '#9a5cff', '#888888'];
+    const [h, l, c, hex, preview] = ['h', 'l', 'c', 'hex', 'preview'].map((id) => document.getElementById(id));
+    l.min = L_MIN;
+    l.max = L_MAX;
+
+    // The sliders hold OKLCH; out-of-gamut picks lose chroma on the way to hex.
+    const current = () => oklchToHex([+l.value, +c.value, +h.value]);
+
+    function paint(color) {
+      const p = paletteFrom(color);
+      preview.style.background = `linear-gradient(135deg, ${p.lit} 0 45%, ${p.shade} 55%)`;
+      const L = +l.value, C = +c.value, H = +h.value;
+      const stops = (f, n = 12) => Array.from({ length: n + 1 }, (_, i) => oklchToHex(f(i / n))).join(', ');
+      h.style.background = `linear-gradient(to right, ${stops((t) => [L, C, t * 360], 24)})`;
+      l.style.background = `linear-gradient(to right, ${stops((t) => [L_MIN + t * (L_MAX - L_MIN), C, H])})`;
+      c.style.background = `linear-gradient(to right, ${stops((t) => [L, t * 0.32, H])})`;
+    }
+
+    function load(color) {
+      const [L, C, H] = hexToOklch(clampBase(color));
+      [l.value, c.value, h.value] = [L, C, H];
+      hex.value = color.toLowerCase();
+      paint(color);
+    }
+
+    // Everything here only previews on him; Apply keeps it, and Cancel (or
+    // closing the window) puts back the color he had.
+    let picked;
+    function pick(color) {
+      picked = color;
+      api.setColor(color, false);
+      paint(color);
+    }
+    const apply = () => { api.setColor(picked, true); window.close(); };
+
+    for (const input of [h, l, c]) {
+      input.addEventListener('input', () => { hex.value = current(); pick(current()); });
+    }
+    hex.addEventListener('input', () => {
+      const v = hex.value.trim().replace(/^#?/, '#');
+      if (!isHex(v)) return;
+      const [L, C, H] = hexToOklch(clampBase(v));
+      [l.value, c.value, h.value] = [L, C, H];
+      pick(v);
+    });
+    const choose = (color) => { load(color); pick(color); };
+    for (const color of SWATCHES) {
+      const b = document.createElement('button');
+      b.style.background = color;
+      b.title = color;
+      b.addEventListener('click', () => choose(color));
+      document.getElementById('swatches').append(b);
+    }
+    document.getElementById('reset').title = 'Back to the original orange';
+    document.getElementById('reset').addEventListener('click', () => choose(query.get('default') ?? DEFAULT_COLOR));
+    document.getElementById('cancel').addEventListener('click', () => window.close());
+    document.getElementById('apply').addEventListener('click', apply);
+    addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') window.close();
+      if (e.key === 'Enter') apply();
+    });
+
+    picked = isHex(query.get('color')) ? query.get('color') : DEFAULT_COLOR;
+    load(picked);
+  </script>
+</body>
+</html>

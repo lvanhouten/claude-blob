@@ -6,6 +6,7 @@ import { renderer, scene, camera, root, body, ROOT_Y, ROOT_SCALE, updateLights, 
 import { SHAPE, skin, jiggle, JIGGLE, poke, ARMS, armDirs, arms, updateArmAnchors, deform } from './surface.js';
 import { bodyMat, halftone, HALFTONE_DOTS_PER_UNIT, HALFTONE_WAVE } from './materials.js';
 import { eyes, updateFace } from './face.js';
+import './color.js';
 import { easeInOutBack } from './easing.js';
 import { hands, updateSheet, lookAtSheet } from './props.js';
 import { updateBubble, updateZs } from './floaters.js';

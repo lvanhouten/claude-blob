@@ -41,6 +41,7 @@ You need [Node.js](https://nodejs.org) 22 or later, on your `PATH` so Claude Cod
 - While it's idle, **circle your cursor around its eyes three times** and it spins itself dizzy.
 - **Session** in the menu picks which Claude Code session the blob follows: **Auto**, or one session by its project name.
 - **Light** in the menu sets where the light comes from: a fixed angle, or **Auto**, which lights him from the center of whichever monitor he's on.
+- **Color…** in the menu opens a picker that previews colors on him live; **Apply** keeps one, **Cancel** puts his old color back. You pick one base color; his lit side, sheen and glow are worked out from it.
 - **Size** in the menu makes him small, medium or large.
 - Clicks anywhere else pass straight through to the windows underneath.
 - **Animation gallery** (tray or right-click menu, or open `gallery.html` through any local web server) shows every animation looping side by side.

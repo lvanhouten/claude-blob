@@ -1,0 +1,112 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Blob Colors</title>
+  <style>
+    :root {
+      --bg: #f4ede6;
+      --card: #e6dbd0;
+      --ink: #2e2018;
+      --muted: #7a6455;
+      --accent: #c2622c;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1c1917;
+        --card: #2a2420;
+        --ink: #f5ebe3;
+        --muted: #a8968a;
+        --accent: #ff9a5c;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 32px 24px 48px;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    }
+    header { max-width: 1280px; margin: 0 auto 24px; }
+    h1 { margin: 0 0 6px; font-size: 22px; font-weight: 650; }
+    header p { margin: 0; color: var(--muted); font-size: 14px; }
+    .grid {
+      max-width: 1280px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 16px;
+    }
+    figure {
+      margin: 0;
+      background: var(--card);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    /* Crop the empty speech-bubble area off the top of the 300x380 blob page. */
+    .stage {
+      position: relative;
+      height: 250px;
+      overflow: hidden;
+    }
+    .stage iframe {
+      position: absolute;
+      left: 50%;
+      top: -82px;
+      width: 300px;
+      height: 380px;
+      margin-left: -150px;
+      border: 0;
+      background: transparent;
+    }
+    .stage.dark { background: #0d1117; }
+    .stage.light { background: #ffffff; }
+    figcaption { padding: 4px 16px 16px; }
+    figcaption strong { display: block; font-size: 15px; font-weight: 650; }
+    figcaption code {
+      display: inline-block;
+      margin: 4px 0 6px;
+      font-size: 12px;
+      color: var(--accent);
+      font-family: "Cascadia Code", Consolas, monospace;
+    }
+    figcaption span { display: block; color: var(--muted); font-size: 13px; line-height: 1.4; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Blob colors</h1>
+    <p>Picked base colors, with the rest of the palette derived from each. <code>lit=own</code> keeps the lit side on the base's own hue instead of leaning it toward yellow.</p>
+  </header>
+  <main class="grid" id="grid"></main>
+  <script>
+    const COLORS = [
+      ['color=ff8642', 'Default', 'The original orange; should look exactly as before.'],
+      ['color=e03040', 'Red', 'Freckles lighten here so they still show.'],
+      ['color=ff6fa8', 'Pink', 'Freckles against a pink base.'],
+      ['color=ffd23f', 'Yellow', 'A light pick: the lit/shade gap shrinks but holds.'],
+      ['color=2fbf71', 'Green', 'Lit side leaning toward yellow.'],
+      ['color=3a7bff', 'Blue', 'Lit side leaning toward yellow (through cyan).'],
+      ['color=3a7bff&lit=own', 'Blue, own hue', 'Lit side stays blue.'],
+      ['color=9a5cff', 'Purple', 'Lit side leaning toward yellow (through pink).'],
+      ['color=9a5cff&lit=own', 'Purple, own hue', 'Lit side stays purple.'],
+      ['color=fff4e0', 'Very light', 'Base lightness clamped down so the split still reads.'],
+      ['color=1a1420', 'Very dark', 'Base lightness clamped up so he stays out of the mud.'],
+      ['color=888888', 'Grey', 'No chroma at all.'],
+      ['color=3a7bff&state=sleeping', 'Blue, asleep', 'The sleeping tint on a cool pick.'],
+      ['color=ffd23f&state=sleeping', 'Yellow, asleep', 'The sleeping tint on a light pick.'],
+    ];
+    const grid = document.getElementById('grid');
+    for (const [query, title, text] of COLORS) {
+      const fig = document.createElement('figure');
+      const state = query.includes('state=') ? '' : '&state=idle';
+      fig.innerHTML = `
+        <div class="stage"><iframe src="index.html?embed${state}&${query}" title="${title}" loading="lazy"></iframe></div>
+        <figcaption><strong>${title}</strong><code>${query}</code><span>${text}</span></figcaption>`;
+      grid.append(fig);
+    }
+  </script>
+</body>
+</html>

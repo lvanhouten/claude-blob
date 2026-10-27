@@ -52,7 +52,7 @@ const glint = new THREE.Mesh(
 glint.scale.set(0.3, 0.2, 1);
 addDecal(glint, new THREE.Vector3(-0.5, 0.62, 0.6), 0.6);
 
-const freckleMat = new THREE.MeshBasicMaterial({ color: '#d4572a', transparent: true, opacity: 0.75, depthWrite: false });
+export const freckleMat = new THREE.MeshBasicMaterial({ color: '#d4572a', transparent: true, opacity: 0.75, depthWrite: false });
 for (const [x, y] of [[0.42, -0.2], [0.49, -0.15], [0.48, -0.25], [0.55, -0.2]].flatMap(([x, y]) => [[x, y], [-x, y]])) {
   const f = new THREE.Mesh(new THREE.CircleGeometry(0.022, 12), freckleMat);
   addDecal(f, new THREE.Vector3(x, y, 0.72));

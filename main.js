@@ -63,9 +63,13 @@ const LIGHTS = [['auto', 'Auto (from screen center)'], ['upper-left', 'Upper lef
   ['top', 'Top'], ['front', 'Front'], ['side', 'Side']];
 const SCALES = [[0.75, 'Small'], [1, 'Medium'], [1.25, 'Large']];
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
-const settings = { light: 'auto', scale: 1 };
+// color: his base (shade-side) color; the renderer derives the rest of the palette from it.
+const DEFAULT_COLOR = '#ff8642';
+const isHex = (c) => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c);
+const settings = { light: 'auto', scale: 1, color: DEFAULT_COLOR };
 try { Object.assign(settings, JSON.parse(fs.readFileSync(settingsFile(), 'utf8'))); } catch { /* defaults */ }
 if (!SCALES.some(([s]) => s === settings.scale)) settings.scale = 1;
+if (!isHex(settings.color)) settings.color = DEFAULT_COLOR;
 
 function saveSettings() {
   try { fs.writeFileSync(settingsFile(), JSON.stringify(settings)); } catch { /* not worth crashing over */ }
@@ -87,6 +91,37 @@ function setScale(scale) {
   place(Math.round(b.x + (b.width - width) / 2), b.y + b.height - height);
   win.webContents.setZoomFactor(scale);
   savePosition();
+}
+
+const showColor = (color) => { if (win && !win.isDestroyed()) win.webContents.send('color', color); };
+
+// The picker previews on him live; only Apply (done) keeps the pick.
+function setColor(color, done) {
+  if (!isHex(color)) return;
+  showColor(color);
+  if (!done) return;
+  settings.color = color;
+  saveSettings();
+}
+
+let picker = null;
+
+function openPicker() {
+  if (picker && !picker.isDestroyed()) return picker.focus();
+  picker = new BrowserWindow({
+    width: 320, height: 300, useContentSize: true, show: false, title: 'Blob color',
+    resizable: false, maximizable: false, minimizable: false, autoHideMenuBar: true, alwaysOnTop: true, icon: ICON,
+    webPreferences: { preload: path.join(__dirname, 'preload.js') },
+  });
+  picker.loadFile('color.html', { query: { color: settings.color, default: DEFAULT_COLOR } });
+  // Fit the window to the page, so it never needs a scroll bar.
+  picker.webContents.on('did-finish-load', async () => {
+    const height = await picker.webContents.executeJavaScript('document.documentElement.scrollHeight');
+    picker.setContentSize(320, height);
+    picker.show();
+  });
+  // Cancel, or closing it any other way, puts back the saved color.
+  picker.on('closed', () => showColor(settings.color));
 }
 
 // Where he sits on his monitor, -1..1 from left to right and top to bottom.
@@ -134,6 +169,7 @@ function createWindow() {
   win.webContents.on('did-finish-load', () => {
     win.webContents.setZoomFactor(settings.scale);
     sendLight();
+    win.webContents.send('color', settings.color);
   });
   win.on('move', () => { if (settings.light === 'auto') sendLight(); });
 
@@ -187,6 +223,7 @@ function menu() {
     { label: 'Test notification', click: () => send({ event: 'Notification', session: 'test', cwd: 'claude-blob', message: 'Claude needs your permission to use Bash' }) },
     { label: 'Session', submenu: sessionMenu() },
     { label: 'Light', submenu: LIGHTS.map(([mode, label]) => ({ label, type: 'radio', checked: settings.light === mode, click: () => setLight(mode) })) },
+    { label: 'Color…', click: openPicker },
     { label: 'Size', submenu: SCALES.map(([scale, label]) => ({ label, type: 'radio', checked: settings.scale === scale, click: () => setScale(scale) })) },
     { label: 'Animation gallery', click: openGallery },
     { type: 'separator' },
@@ -260,6 +297,8 @@ ipcMain.on('sessions', (_e, list) => {
   sessionList = list;
   if (tray) tray.setContextMenu(menu());
 });
+
+ipcMain.on('set-color', (_e, color, done) => setColor(color, done));
 
 ipcMain.on('context-menu',() => menu().popup({ window: win }));
 

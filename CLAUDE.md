@@ -26,14 +26,16 @@ tuning it, the owner's design references, and the planned next work.
 
 ## Verifying changes
 
-`npm test` covers session tracking (`src/sessions.js`, which runs without a DOM or WebGL). Everything
+`npm test` covers session tracking (`src/sessions.js`) and the color palette (`src/palette.js`),
+which run without a DOM or WebGL. Everything
 else is verified visually.
 
 - **Preview:** start `blob-preview` (static server on :5179) and open:
   - `gallery.html` for every animation.
   - `looks.html` for light angles and the edge light.
+  - `colors.html` for picked body colors (`src/palette.js` derives the palette).
   - `index.html?state=<name>&embed` for a single state. Other URL params: `light`, `rim=0`,
-    `wave=old`.
+    `wave=old`, `color=<hex>`, `lit=own`.
 - **Debug globals:** `__emit(evt)`, `__poke(x, y)`, `__pin(id)`, `__minions`, `__circling`, `__sessions`.
 - **Restarting the app:** the running app only picks up `main.js` and `preload.js` changes after
   a restart (see `.ai/HANDOFF.md`).

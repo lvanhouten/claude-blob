@@ -168,8 +168,21 @@ function sessionMenu() {
   ];
 }
 
+// Hides him without quitting: he keeps following Claude Code, and the tray
+// menu (or a click on the tray icon) brings him back.
+function toggleVisible() {
+  if (win.isVisible()) win.hide();
+  else {
+    win.showInactive(); // he never takes focus
+    win.setAlwaysOnTop(true, 'screen-saver');
+  }
+  if (tray) tray.setContextMenu(menu());
+}
+
 function menu() {
   return Menu.buildFromTemplate([
+    { label: win?.isVisible() === false ? 'Show' : 'Hide', click: toggleVisible },
+    { type: 'separator' },
     { label: 'Reset position', click: () => { const p = homePosition(); place(p.x, p.y); savePosition(); } },
     { label: 'Test notification', click: () => send({ event: 'Notification', session: 'test', cwd: 'claude-blob', message: 'Claude needs your permission to use Bash' }) },
     { label: 'Session', submenu: sessionMenu() },
@@ -257,6 +270,7 @@ app.whenReady().then(() => {
   tray = new Tray(path.join(__dirname, 'assets', 'tray.png'));
   tray.setToolTip('Claude Blob');
   tray.setContextMenu(menu());
+  tray.on('click', toggleVisible);
 });
 
 app.on('window-all-closed', () => app.quit());

@@ -4,12 +4,11 @@ import { bodyMat } from './materials.js';
 import { freckleMat } from './face.js';
 import { paletteFrom, isHex } from './palette.js';
 
-// His body color: one picked base (the shade side), the rest derived from it.
-// Set live from the Color picker, or by ?color=<hex> (and ?lit=own) in previews.
-const LIT = params.get('lit') === 'own' ? 'own' : 'warm';
-
-function setColor(base) {
-  const p = paletteFrom(base, { lit: LIT });
+// His body color: a picked base (the shade side) and optionally a picked lit
+// side; the rest is derived. Set live from the Color picker, or by
+// ?color=<hex> (and ?lit=<hex>) in previews.
+function setColor({ color, lit }) {
+  const p = paletteFrom(color, lit);
   cel.uShadeColor.value.set(p.shade);
   cel.uLitColor.value.set(p.lit);
   bodyMat.sheenColor.set(p.sheen);
@@ -17,6 +16,6 @@ function setColor(base) {
   freckleMat.color.set(p.freckle);
 }
 
-const preview = '#' + (params.get('color') ?? '').replace(/^#/, '');
-if (isHex(preview)) setColor(preview);
+const hexParam = (name) => '#' + (params.get(name) ?? '').replace(/^#/, '');
+if (isHex(hexParam('color'))) setColor({ color: hexParam('color'), lit: hexParam('lit') });
 else api.onColor(setColor); // a ?color= preview wins

@@ -1,16 +1,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { paletteFrom, hexToOklch, L_MIN, L_MAX, DEFAULT_COLOR } from '../src/palette.js';
+import { paletteFrom, hexToOklch, L_MIN, L_MAX, DEFAULT_COLOR, DEFAULT_LIT } from '../src/palette.js';
 
 const ORIGINAL = { shade: '#ff8642', lit: '#ffdc9c', sheen: '#ffd6b8', glow: '#ff6a20', freckle: '#d4572a' };
 const L = (hex) => hexToOklch(hex)[0];
 
-test('the default base gives back the original palette', () => {
-  assert.deepEqual(paletteFrom(DEFAULT_COLOR), ORIGINAL);
+test('the default orange and cream give back the original palette', () => {
+  const p = paletteFrom(DEFAULT_COLOR, DEFAULT_LIT);
+  assert.deepEqual({ ...p, sheen: ORIGINAL.sheen }, ORIGINAL);
+  // The sheen is derived on the base's own hue now, a hair off the original.
+  assert.ok(Math.abs(hexToOklch(p.sheen)[0] - hexToOklch(ORIGINAL.sheen)[0]) < 0.01);
+});
+
+test('a picked lit side is used as is', () => {
+  assert.equal(paletteFrom('#3a7bff', '#FFDC9C').lit, '#ffdc9c');
+  assert.equal(paletteFrom('#3a7bff', 'nope').lit, paletteFrom('#3a7bff').lit);
 });
 
 test('a bad base falls back to the default', () => {
-  assert.deepEqual(paletteFrom('orange'), ORIGINAL);
+  assert.deepEqual(paletteFrom('orange'), paletteFrom(DEFAULT_COLOR));
 });
 
 test('the lit side stays clearly lighter than the shade, even on extreme picks', () => {
@@ -21,10 +29,12 @@ test('the lit side stays clearly lighter than the shade, even on extreme picks',
   }
 });
 
-test('the lit side leans toward yellow unless lit is own', () => {
-  const blue = hexToOklch('#3a7bff')[2];
-  assert.ok(hexToOklch(paletteFrom('#3a7bff').lit)[2] < blue - 10);
-  assert.ok(Math.abs(hexToOklch(paletteFrom('#3a7bff', { lit: 'own' }).lit)[2] - blue) < 3);
+test('the derived lit side and sheen keep the base hue', () => {
+  for (const base of ['#ff8642', '#e03040', '#ff6fa8', '#ffd23f', '#2fbf71', '#3a7bff', '#9a5cff']) {
+    const p = paletteFrom(base);
+    const h = hexToOklch(base)[2];
+    for (const k of ['lit', 'sheen']) assert.ok(Math.abs(hexToOklch(p[k])[2] - h) < 3, `${base} ${k}`);
+  }
 });
 
 test('freckles keep their color except where they would vanish', () => {

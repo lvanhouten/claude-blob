@@ -63,13 +63,17 @@ const LIGHTS = [['auto', 'Auto (from screen center)'], ['upper-left', 'Upper lef
   ['top', 'Top'], ['front', 'Front'], ['side', 'Side']];
 const SCALES = [[0.75, 'Small'], [1, 'Medium'], [1.25, 'Large']];
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
-// color: his base (shade-side) color; the renderer derives the rest of the palette from it.
+// color: his base (shade-side) color; lit: a hand-picked lit side, or null to
+// let the renderer derive it (with the rest of the palette) from color. The
+// default is the original orange and cream.
 const DEFAULT_COLOR = '#ff8642';
+const DEFAULT_LIT = '#ffdc9c';
 const isHex = (c) => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c);
-const settings = { light: 'auto', scale: 1, color: DEFAULT_COLOR };
+const settings = { light: 'auto', scale: 1, color: DEFAULT_COLOR, lit: DEFAULT_LIT };
 try { Object.assign(settings, JSON.parse(fs.readFileSync(settingsFile(), 'utf8'))); } catch { /* defaults */ }
 if (!SCALES.some(([s]) => s === settings.scale)) settings.scale = 1;
-if (!isHex(settings.color)) settings.color = DEFAULT_COLOR;
+if (!isHex(settings.color)) Object.assign(settings, { color: DEFAULT_COLOR, lit: DEFAULT_LIT });
+if (!isHex(settings.lit)) settings.lit = null;
 
 function saveSettings() {
   try { fs.writeFileSync(settingsFile(), JSON.stringify(settings)); } catch { /* not worth crashing over */ }
@@ -93,16 +97,19 @@ function setScale(scale) {
   savePosition();
 }
 
-const showColor = (color) => { if (win && !win.isDestroyed()) win.webContents.send('color', color); };
+const showColor = (pick) => { if (win && !win.isDestroyed()) win.webContents.send('color', pick); };
 
 // The picker previews on him live; only Apply (done) keeps the pick.
-function setColor(color, done) {
+function setColor({ color, lit }, done) {
   if (!isHex(color)) return;
-  showColor(color);
+  const pick = { color, lit: isHex(lit) ? lit : null };
+  showColor(pick);
   if (!done) return;
-  settings.color = color;
+  Object.assign(settings, pick);
   saveSettings();
 }
+
+const savedColor = () => ({ color: settings.color, lit: settings.lit });
 
 let picker = null;
 
@@ -113,7 +120,7 @@ function openPicker() {
     resizable: false, maximizable: false, minimizable: false, autoHideMenuBar: true, alwaysOnTop: true, icon: ICON,
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
-  picker.loadFile('color.html', { query: { color: settings.color, default: DEFAULT_COLOR } });
+  picker.loadFile('color.html', { query: { color: settings.color, lit: settings.lit ?? '' } });
   // Fit the window to the page, so it never needs a scroll bar.
   picker.webContents.on('did-finish-load', async () => {
     const height = await picker.webContents.executeJavaScript('document.documentElement.scrollHeight');
@@ -121,7 +128,7 @@ function openPicker() {
     picker.show();
   });
   // Cancel, or closing it any other way, puts back the saved color.
-  picker.on('closed', () => showColor(settings.color));
+  picker.on('closed', () => showColor(savedColor()));
 }
 
 // Where he sits on his monitor, -1..1 from left to right and top to bottom.
@@ -169,7 +176,7 @@ function createWindow() {
   win.webContents.on('did-finish-load', () => {
     win.webContents.setZoomFactor(settings.scale);
     sendLight();
-    win.webContents.send('color', settings.color);
+    showColor(savedColor());
   });
   win.on('move', () => { if (settings.light === 'auto') sendLight(); });
 
@@ -298,7 +305,7 @@ ipcMain.on('sessions', (_e, list) => {
   if (tray) tray.setContextMenu(menu());
 });
 
-ipcMain.on('set-color', (_e, color, done) => setColor(color, done));
+ipcMain.on('set-color', (_e, pick, done) => setColor(pick, done));
 
 ipcMain.on('context-menu',() => menu().popup({ window: win }));
 

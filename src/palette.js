@@ -1,19 +1,19 @@
 // Body colors from one picked base color. The base is the shade side; the lit
 // side, sheen and glow are offsets from it, measured from the original orange
-// palette, so the default still comes out exactly as before. The math runs in
+// palette, and stay on the base's own hue. The lit side can also be picked by
+// hand; the default is the original orange with its cream lit side, as such a
+// pick (DEFAULT_LIT). The math runs in
 // OKLCH so lightness stays even across hues (in HSL a blue at the same
 // "lightness" as an orange looks much darker). No three.js here, so it runs in
 // the picker window and in node tests too.
 
 export const DEFAULT_COLOR = '#ff8642';
+export const DEFAULT_LIT = '#ffdc9c';
 
 // The original palette, and the freckles, which stay this color wherever they can.
-const ORIGINAL = { shade: DEFAULT_COLOR, lit: '#ffdc9c', sheen: '#ffd6b8', glow: '#ff6a20' };
+const ORIGINAL = { shade: DEFAULT_COLOR, lit: DEFAULT_LIT, sheen: '#ffd6b8', glow: '#ff6a20' };
 const FRECKLE = '#d4572a';
 
-// OKLCH hue of yellow: in 'warm' mode the lit side leans toward it, like warm
-// light on the blob, whatever his own color.
-const YELLOW_H = 110;
 // Lightness limits. The lit side sits as far above the base as in the original
 // palette, but no higher than LIT_MAX; on light picks the gap shrinks to at
 // least MIN_GAP, so the cream/shade split never collapses. L_MIN keeps very
@@ -109,20 +109,19 @@ function freckleFor(shade) {
   return FRECKLE;
 }
 
-// lit: 'warm' turns the lit side's hue toward yellow (warm light, whatever his
-// color), 'own' keeps it on the base's own hue. Sheen and glow keep their
-// original offsets either way.
-export function paletteFrom(base, { lit = 'warm' } = {}) {
+// lit: a hand-picked lit side, used as is; leave it out to derive one. The
+// derived lit side and sheen keep the base's hue (the original cream leaned
+// toward yellow, which only suits oranges); the glow keeps its original slight
+// shift toward red.
+export function paletteFrom(base, lit = null) {
   const shade = clampBase(isHex(base) ? base : DEFAULT_COLOR);
   const [L, C, H] = hexToOklch(shade);
   const derive = ({ dL, kC, dH }, l = L + dL) => oklchToHex([l, C * kC, H + dH]);
-  const toYellow = wrap(YELLOW_H - H);
-  const litH = lit === 'own' ? 0 : Math.sign(toYellow) * Math.min(Math.abs(OFFSETS.lit.dH), Math.abs(toYellow));
   const litL = Math.max(L + MIN_GAP, Math.min(LIT_MAX, L + OFFSETS.lit.dL));
   return {
     shade,
-    lit: derive({ ...OFFSETS.lit, dH: litH }, litL),
-    sheen: derive(OFFSETS.sheen, Math.min(litL, L + OFFSETS.sheen.dL)),
+    lit: isHex(lit) ? lit.toLowerCase() : derive({ ...OFFSETS.lit, dH: 0 }, litL),
+    sheen: derive({ ...OFFSETS.sheen, dH: 0 }, Math.min(litL, L + OFFSETS.sheen.dL)),
     glow: derive(OFFSETS.glow),
     freckle: freckleFor(shade),
   };

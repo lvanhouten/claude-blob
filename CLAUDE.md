@@ -35,7 +35,7 @@ else is verified visually.
   - `looks.html` for light angles and the edge light.
   - `colors.html` for picked body colors (`src/palette.js` derives the palette).
   - `index.html?state=<name>&embed` for a single state. Other URL params: `light`, `rim=0`,
-    `wave=old`, `color=<hex>`, `lit=own`.
+    `wave=old`, `color=<hex>`, `lit=<hex>`.
 - **Debug globals:** `__emit(evt)`, `__poke(x, y)`, `__pin(id)`, `__minions`, `__circling`, `__sessions`.
 - **Restarting the app:** the running app only picks up `main.js` and `preload.js` changes after
   a restart (see `.ai/HANDOFF.md`).

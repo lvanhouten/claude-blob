@@ -12,6 +12,20 @@ export const DEFAULT_LIT = '#ffdc9c';
 
 // The original palette, and the freckles, which stay this color wherever they can.
 const ORIGINAL = { shade: DEFAULT_COLOR, lit: DEFAULT_LIT, sheen: '#ffd6b8', glow: '#ff6a20' };
+// Accents around him that follow his color, measured from the original shade:
+// the thought bubble's busy dot, the speech bubble's project label, and the
+// "needs you" bubble's ring and glow.
+const ACCENTS = { dot: '#e0703c', label: '#c2622c', ring: '#ff9a5c', halo: '#ff6e28' };
+// The thought bubble and sleeping Z's: a cream paper fill, a brown ink outline
+// and the bubble's faint idle dots. They keep these lightnesses on every pick,
+// so the bubble always reads as paper, and take their saturation from the lit
+// side. Paper takes the lit side's hue; ink and faint take the hue halfway
+// between the lit side and the shade.
+const PAPER = { paper: '#fff4e0', ink: '#b58f6c', faint: '#c9a888' };
+// The label is text on the near-white bubble, and the dot sits on the cream
+// thought bubble; cap their lightness so light picks stay readable.
+const LABEL_L_MAX = 0.62;
+const DOT_L_MAX = 0.75;
 const FRECKLE = '#d4572a';
 
 // Lightness limits. The lit side sits as far above the base as in the original
@@ -82,11 +96,13 @@ export function oklchToHex([L, C, H]) {
 
 export const isHex = (s) => typeof s === 'string' && /^#[0-9a-f]{6}$/i.test(s);
 
-const base0 = hexToOklch(ORIGINAL.shade);
-const OFFSETS = Object.fromEntries(['lit', 'sheen', 'glow'].map((k) => {
-  const [L, C, H] = hexToOklch(ORIGINAL[k]);
-  return [k, { dL: L - base0[0], kC: C / base0[1], dH: wrap(H - base0[2]) }];
-}));
+function offset(from, to) {
+  const [L0, C0, H0] = hexToOklch(from);
+  const [L, C, H] = hexToOklch(to);
+  return { dL: L - L0, kC: C / C0, dH: wrap(H - H0) };
+}
+const OFFSETS = Object.fromEntries(Object.entries({ ...ORIGINAL, ...ACCENTS }).map(([k, c]) => [k, offset(ORIGINAL.shade, c)]));
+const PAPER_OFFSETS = Object.fromEntries(Object.entries(PAPER).map(([k, c]) => [k, { ...offset(DEFAULT_LIT, c), L: hexToOklch(c)[0] }]));
 
 // The base as it will actually be used: lightness clamped to L_MIN..L_MAX.
 export function clampBase(hex) {
@@ -118,11 +134,23 @@ export function paletteFrom(base, lit = null) {
   const [L, C, H] = hexToOklch(shade);
   const derive = ({ dL, kC, dH }, l = L + dL) => oklchToHex([l, C * kC, H + dH]);
   const litL = Math.max(L + MIN_GAP, Math.min(LIT_MAX, L + OFFSETS.lit.dL));
+  lit = isHex(lit) ? lit.toLowerCase() : derive({ ...OFFSETS.lit, dH: 0 }, litL);
+  const [, Cl, Hl] = hexToOklch(lit);
+  const fromLit = ({ L: l, kC }, h) => oklchToHex([l, Cl * kC, h]);
+  // Grey picks have no hue to average; take whichever side has one.
+  const midH = Cl < 1e-3 ? H : C < 1e-3 ? Hl : Hl + wrap(H - Hl) / 2;
   return {
     shade,
-    lit: isHex(lit) ? lit.toLowerCase() : derive({ ...OFFSETS.lit, dH: 0 }, litL),
+    lit,
     sheen: derive({ ...OFFSETS.sheen, dH: 0 }, Math.min(litL, L + OFFSETS.sheen.dL)),
     glow: derive(OFFSETS.glow),
     freckle: freckleFor(shade),
+    dot: derive(OFFSETS.dot, Math.min(DOT_L_MAX, L + OFFSETS.dot.dL)),
+    label: derive(OFFSETS.label, Math.min(LABEL_L_MAX, L + OFFSETS.label.dL)),
+    ring: derive(OFFSETS.ring),
+    halo: derive(OFFSETS.halo),
+    paper: fromLit(PAPER_OFFSETS.paper, Hl + PAPER_OFFSETS.paper.dH),
+    ink: fromLit(PAPER_OFFSETS.ink, midH),
+    faint: fromLit(PAPER_OFFSETS.faint, midH),
   };
 }

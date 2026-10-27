@@ -46,7 +46,7 @@ html, body {
   width: 190px;
   height: 190px;
   border-radius: 50%;
-  background: radial-gradient(closest-side, rgba(255, 130, 60, 0.35), rgba(255, 130, 60, 0));
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--ring, #ff9a5c) 35%, transparent), transparent);
 }
 
 #pulse span {
@@ -57,8 +57,8 @@ html, body {
   height: 160px;
   box-sizing: border-box;
   border-radius: 50%;
-  border: 2px solid rgba(255, 145, 80, 0.7);
-  box-shadow: 0 0 14px rgba(255, 120, 40, 0.5), inset 0 0 14px rgba(255, 120, 40, 0.35);
+  border: 2px solid color-mix(in srgb, var(--ring, #ff9a5c) 70%, transparent);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--halo, #ff6e28) 50%, transparent), inset 0 0 14px color-mix(in srgb, var(--halo, #ff6e28) 35%, transparent);
   opacity: 0;
   animation: ripple 1.8s ease-out infinite;
 }
@@ -109,16 +109,17 @@ html, body {
   pointer-events: none;
 }
 
+/* --ring, --halo and --label follow his body color (src/color.js). */
 #bubble.attention {
   background: #fff3e6;
-  box-shadow: 0 4px 18px rgba(255, 110, 40, 0.4), 0 0 0 2px #ff9a5c;
+  box-shadow: 0 4px 18px color-mix(in srgb, var(--halo, #ff6e28) 40%, transparent), 0 0 0 2px var(--ring, #ff9a5c);
 }
 
 #bubble-label {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  color: #c2622c;
+  color: var(--label, #c2622c);
   margin-bottom: 2px;
 }
 

@@ -11,6 +11,11 @@ import { easeOutBack } from './easing.js';
 const BUBBLE = { at: [0.95, 1.37], size: 0.66, px: [112, 66], bob: 4.5, hz: 1.4, popSecs: 0.35, trail: [[-0.46, -0.31, 0.04], [-0.35, -0.21, 0.075]] };
 const BUBBLE_ON = params.get('bubble') !== '0';
 
+// The colors that follow his body color (setFloaterColors): the thought
+// bubble and Z's share a paper fill and ink outline; the bubble's dots are
+// faint, except the busy one.
+const colors = { paper: '#fff4e0', ink: '#b58f6c', faint: '#c9a888', dot: '#e0703c' };
+
 const bubbleCanvas = document.createElement('canvas');
 [bubbleCanvas.width, bubbleCanvas.height] = BUBBLE.px;
 const bubbleG = bubbleCanvas.getContext('2d');
@@ -21,36 +26,38 @@ bubbleTex.colorSpace = THREE.SRGBColorSpace;
 const bubble = new THREE.Sprite(new THREE.SpriteMaterial({ map: bubbleTex, alphaTest: 0.5 }));
 bubble.visible = false;
 root.add(bubble);
+const trailCanvas = document.createElement('canvas');
+trailCanvas.width = trailCanvas.height = 64;
+const trailTex = new THREE.CanvasTexture(trailCanvas);
+trailTex.colorSpace = THREE.SRGBColorSpace;
 const bubbleTrail = BUBBLE.trail.map(() => {
-  const d = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture(), alphaTest: 0.5 }));
+  const d = new THREE.Sprite(new THREE.SpriteMaterial({ map: trailTex, alphaTest: 0.5 }));
   d.visible = false;
   root.add(d);
   return d;
 });
 let bubbleT = 0;
 
-function dotTexture() {
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const g = c.getContext('2d');
-  g.fillStyle = '#fff4e0';
-  g.strokeStyle = '#b58f6c';
+function drawTrail() {
+  const g = trailCanvas.getContext('2d');
+  g.clearRect(0, 0, 64, 64);
+  g.fillStyle = colors.paper;
+  g.strokeStyle = colors.ink;
   g.lineWidth = 6;
   g.beginPath();
   g.arc(32, 32, 27, 0, Math.PI * 2);
   g.fill();
   g.stroke();
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
+  trailTex.needsUpdate = true;
 }
+drawTrail();
 
 function drawBubble(t) {
   const [w, h] = BUBBLE.px;
   const g = bubbleG;
   g.clearRect(0, 0, w, h);
-  g.fillStyle = '#fff4e0';
-  g.strokeStyle = '#b58f6c';
+  g.fillStyle = colors.paper;
+  g.strokeStyle = colors.ink;
   g.lineWidth = 5;
   g.beginPath();
   g.roundRect(4, 4, w - 8, h - 8, (h - 8) / 2);
@@ -59,7 +66,7 @@ function drawBubble(t) {
   // Three dots hop in turn, each a little after the one before.
   for (let k = 0; k < 3; k++) {
     const hop = Math.max(0, Math.sin(t * BUBBLE.hz * Math.PI * 2 - k * 0.9));
-    g.fillStyle = ['#c9a888', '#e0703c', '#c9a888'][k];
+    g.fillStyle = k === 1 ? colors.dot : colors.faint;
     g.beginPath();
     g.arc(w / 2 + (k - 1) * 24, h / 2 + 3 - hop * BUBBLE.bob * 2, 7.5, 0, Math.PI * 2);
     g.fill();
@@ -97,24 +104,32 @@ export function updateBubble(step, time) {
 // they start and end up (in his space); size: smallest and largest
 const ZS = { every: 1.4, life: 3.6, from: [0.4, 0.85], to: [0.95, 1.45], size: [0.12, 0.28], sway: 0.08 };
 
-function zTexture() {
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const g = c.getContext('2d');
+const zCanvas = document.createElement('canvas');
+zCanvas.width = zCanvas.height = 64;
+const zTex = new THREE.CanvasTexture(zCanvas);
+zTex.colorSpace = THREE.SRGBColorSpace;
+
+function drawZ() {
+  const g = zCanvas.getContext('2d');
+  g.clearRect(0, 0, 64, 64);
   g.font = '900 56px "Arial Black", Arial, sans-serif';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.lineJoin = 'round';
   g.lineWidth = 10;
-  g.strokeStyle = '#b58f6c';
+  g.strokeStyle = colors.ink;
   g.strokeText('z', 32, 30);
-  g.fillStyle = '#fff4e0';
+  g.fillStyle = colors.paper;
   g.fillText('z', 32, 30);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
+  zTex.needsUpdate = true;
 }
-const zTex = zTexture();
+drawZ();
+
+export function setFloaterColors({ paper, ink, faint, dot }) {
+  Object.assign(colors, { paper, ink, faint, dot });
+  drawTrail();
+  drawZ(); // the thought bubble itself redraws every frame
+}
 const zs = Array.from({ length: Math.ceil(ZS.life / ZS.every) }, () => {
   const z = new THREE.Sprite(new THREE.SpriteMaterial({ map: zTex, alphaTest: 0.5 }));
   z.visible = false;

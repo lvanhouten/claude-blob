@@ -2,7 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { paletteFrom, hexToOklch, L_MIN, L_MAX, DEFAULT_COLOR, DEFAULT_LIT } from '../src/palette.js';
 
-const ORIGINAL = { shade: '#ff8642', lit: '#ffdc9c', sheen: '#ffd6b8', glow: '#ff6a20', freckle: '#d4572a' };
+const ORIGINAL = {
+  shade: '#ff8642', lit: '#ffdc9c', sheen: '#ffd6b8', glow: '#ff6a20', freckle: '#d4572a',
+  dot: '#e0703c', label: '#c2622c', ring: '#ff9a5c', halo: '#ff6e28', paper: '#fff4e0', ink: '#b58f6c', faint: '#c9a888',
+};
 const L = (hex) => hexToOklch(hex)[0];
 
 test('the default orange and cream give back the original palette', () => {
@@ -10,6 +13,15 @@ test('the default orange and cream give back the original palette', () => {
   assert.deepEqual({ ...p, sheen: ORIGINAL.sheen }, ORIGINAL);
   // The sheen is derived on the base's own hue now, a hair off the original.
   assert.ok(Math.abs(hexToOklch(p.sheen)[0] - hexToOklch(ORIGINAL.sheen)[0]) < 0.01);
+});
+
+test('the bubble label stays dark enough to read on light picks', () => {
+  for (const base of ['#ffd23f', '#fff4e0', '#ffffff', '#ff6fa8']) assert.ok(L(paletteFrom(base).label) <= 0.63, base);
+});
+
+test('the thought bubble and Z paper follows the lit side', () => {
+  const purple = paletteFrom('#9a5cff');
+  assert.ok(Math.abs(hexToOklch(purple.paper)[2] - hexToOklch(purple.lit)[2]) < 5);
 });
 
 test('a picked lit side is used as is', () => {

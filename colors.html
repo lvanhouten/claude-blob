@@ -87,7 +87,6 @@
       ['color=ff8642', 'Orange, auto lit', 'The same orange with a worked-out lit side: peach, not cream.'],
       ['color=d4572a', 'Rust', 'Freckles lighten here so they still show.'],
       ['color=e03040', 'Red', 'Lit side a light red.'],
-      ['color=ff6fa8', 'Pink', 'Freckles against a pink base.'],
       ['color=ffd23f', 'Yellow', 'A light pick: the lit/shade gap shrinks but holds.'],
       ['color=2fbf71', 'Green', 'Lit side a pale mint.'],
       ['color=2bb5c4', 'Teal', 'Lit side a pale aqua.'],
@@ -95,8 +94,9 @@
       ['color=3a7bff&lit=ffdc9c', 'Blue, cream lit', 'A hand-picked lit side on a cool color.'],
       ['color=9a5cff', 'Purple', 'Lit side lavender.'],
       ['color=fff4e0', 'Very light', 'Base lightness clamped down so the split still reads.'],
-      ['color=3a7bff&state=sleeping', 'Blue, asleep', 'The sleeping tint on a cool pick.'],
-      ['color=ffd23f&state=sleeping', 'Yellow, asleep', 'The sleeping tint on a light pick.'],
+      ['color=9a5cff&state=sleeping', 'Purple, asleep', 'The sleeping tint, and Z shapes that follow the lit side.'],
+      ['color=ffd23f&state=thinking', 'Yellow, thinking', 'The busy dot in the thought bubble, on a light pick.'],
+      ['color=9a5cff&state=attention&attn=glow', 'Purple, needs you', 'The ring, glow and ripples follow his color.'],
     ];
     const grid = document.getElementById('grid');
     for (const [query, title, text] of COLORS) {

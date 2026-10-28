@@ -1,6 +1,6 @@
 {
   "name": "claude-blob",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A little desktop blob that reacts to Claude Code hooks",
   "main": "main.js",
   "scripts": {
@@ -35,7 +35,11 @@
       "color.html",
       "style.css",
       "src/**/*",
-      "assets/**/*"
+      "assets/**/*",
+      {
+        "from": "node_modules/three/examples/jsm",
+        "to": "node_modules/three/examples/jsm"
+      }
     ],
     "directories": {
       "output": "dist"

@@ -26,8 +26,8 @@ tuning it, the owner's design references, and the planned next work.
 
 ## Verifying changes
 
-`npm test` covers session tracking (`src/sessions.js`) and the color palette (`src/palette.js`),
-which run without a DOM or WebGL. Everything
+`npm test` covers session tracking (`src/sessions.js`), the color palette (`src/palette.js`) and
+the Claude Code settings merge (`claude-hooks.js`), which run without a DOM, WebGL or Electron. Everything
 else is verified visually.
 
 - **Preview:** start `blob-preview` (static server on :5179) and open:

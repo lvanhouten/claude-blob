@@ -7,33 +7,49 @@ session is doing, and pops up a speech bubble when Claude needs you.
 
 ## Install
 
-You need [Node.js](https://nodejs.org) 22 or later, on your `PATH` so Claude Code's hooks can run it.
+Download the latest build from the [Releases page](https://github.com/lvanhouten/claude-blob/releases/latest):
 
-1. Clone this repo and install its dependencies:
+| Platform | File |
+|----------|------|
+| Windows  | `claude-blob-Setup-<version>.exe`: installs for your user, no admin needed |
+| macOS    | `claude-blob-<version>-mac.dmg`: drag it to Applications |
+| Linux    | `claude-blob-<version>.AppImage`: `chmod +x` it and run it |
 
-   ```
-   git clone https://github.com/lvanhouten/claude-blob.git
-   cd claude-blob
-   npm install
-   ```
+The builds aren't code-signed. On Windows, click **More info > Run anyway** at the SmartScreen
+prompt. On macOS, right-click the app and choose **Open** the first time. Only Windows is
+tested day to day.
 
-2. Start the blob. It appears in the bottom-right of your primary screen.
+Then:
 
-   ```
-   npm start
-   ```
+1. Start the blob. It appears in the bottom-right of your primary screen.
+2. Pick **Connect to Claude Code** from the tray menu (or right-click the blob). It adds the
+   blob's hooks to `~/.claude/settings.json`, keeps any hooks you already have, and leaves a
+   backup at `settings.json.claude-blob.bak`. Clicking it again takes them back out. The hooks
+   need [Node.js](https://nodejs.org) 22 or later on your `PATH`.
+3. Check it works: start a new Claude Code session and send a prompt, and the blob should start
+   thinking. If nothing happens, open <http://127.0.0.1:7777/recent> to see the last events the
+   blob received, and use **Test notification** in the tray menu to check the blob itself.
 
-   Or build a standalone Windows app with `npm run package` and run
-   `dist\claude-blob-win32-x64\claude-blob.exe`. To start it when you log in, put a shortcut
-   to that exe in your Startup folder (press Win+R and run `shell:startup`).
+**Start at login** in the menu launches him when you sign in (Windows and macOS).
 
-3. [Wire up Claude Code](#wiring-up-claude-code) so the blob hears about your sessions.
+### Updates
 
-4. Check it works: send a prompt in Claude Code and the blob should start thinking. If nothing
-   happens, open <http://127.0.0.1:7777/recent> to see the last events the blob received, and
-   use **Test notification** in the tray menu to check the blob itself.
+On Windows and Linux he checks for a new release on launch and every few hours, downloads it in
+the background and installs it the next time he quits. **Restart to update** appears in the menu
+once one is ready. Unsigned macOS apps can't update themselves, so on macOS the menu offers
+**Download** instead. **Version** at the bottom of the menu shows what you're running.
 
-`npm run demo` plays a fake session to show every animation, and `npm test` runs the tests.
+### Running from source
+
+```
+git clone https://github.com/lvanhouten/claude-blob.git
+cd claude-blob
+npm install
+npm start
+```
+
+`npm run demo` plays a fake session to show every animation, `npm test` runs the tests, and
+`npm run dist` builds an installer for the current platform into `dist/`.
 
 ## Using it
 
@@ -48,9 +64,12 @@ You need [Node.js](https://nodejs.org) 22 or later, on your `PATH` so Claude Cod
 
 ## Wiring up Claude Code
 
-Add these to `~/.claude/settings.json` under `"hooks"`, replacing `/path/to/claude-blob`
-with where you cloned this repo. Merge them with any hooks you
-already have: each event's array can hold several entries.
+**Connect to Claude Code** in the menu does this for you. To wire it by hand, add these to
+`~/.claude/settings.json` under `"hooks"`, replacing `/path/to/claude-blob/hook.js` with either a
+clone's `hook.js` or the copy the app keeps up to date in its data folder
+(`%APPDATA%\claude-blob\hook.js` on Windows, `~/Library/Application Support/claude-blob/hook.js`
+on macOS, `~/.config/claude-blob/hook.js` on Linux). Merge them with any hooks you already have:
+each event's array can hold several entries.
 
 ```json
 "SessionStart":     [{ "hooks": [{ "type": "command", "command": "node /path/to/claude-blob/hook.js", "timeout": 5 }] }],
@@ -111,5 +130,18 @@ The app icon is traced from one rendered idle frame. After changing his shape or
 
 ```
 npx electron tools/icon.js   # renders the frame
-python tools/icon.py         # writes assets/icon.ico, tray.png and tray@2x.png
+python tools/icon.py         # writes assets/icon.ico, icon.png, tray.png and tray@2x.png
 ```
+
+## Releasing
+
+Bump the version and push the tag it makes:
+
+```
+npm version patch            # or minor / major
+git push --follow-tags
+```
+
+The tag starts `.github/workflows/release.yml`, which tests and builds on Windows, macOS and
+Linux, then publishes a GitHub release with the installers and the `latest*.yml` files the
+updater reads. Installed copies pick it up on their next check.

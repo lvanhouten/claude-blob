@@ -1,7 +1,9 @@
-const { app, BrowserWindow, ipcMain, screen, Menu, Tray } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, screen, shell, Menu, Tray } = require('electron');
 const fs = require('fs');
 const http = require('http');
+const os = require('os');
 const path = require('path');
+const { hookCommand, connect, disconnect, isConnected } = require('./claude-hooks');
 
 const PORT = Number(process.env.BLOB_PORT) || 7777;
 const WIN_W = 300;
@@ -222,8 +224,81 @@ function toggleVisible() {
   if (tray) tray.setContextMenu(menu());
 }
 
+// Claude Code runs this copy, so updates and reinstalls never move the path in its settings.
+const hookPath = () => path.join(app.getPath('userData'), 'hook.js');
+const claudeSettingsFile = () =>
+  path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'settings.json');
+let claudeConnected = false;
+
+function installHook() {
+  try { fs.writeFileSync(hookPath(), fs.readFileSync(path.join(__dirname, 'hook.js'))); } catch { /* keeps the last copy */ }
+}
+
+function readClaudeSettings() {
+  try { return JSON.parse(fs.readFileSync(claudeSettingsFile(), 'utf8')); } catch (err) {
+    if (err.code === 'ENOENT') return {};
+    throw err;
+  }
+}
+
+function checkClaude() {
+  try { claudeConnected = isConnected(readClaudeSettings(), hookCommand(hookPath())); } catch { claudeConnected = false; }
+}
+
+// Leaves a backup beside settings.json, and refuses to touch a file it can't parse.
+function toggleClaude() {
+  const file = claudeSettingsFile();
+  try {
+    const current = readClaudeSettings();
+    const command = hookCommand(hookPath());
+    const next = isConnected(current, command) ? disconnect(current) : connect(current, command);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    if (fs.existsSync(file)) fs.copyFileSync(file, `${file}.claude-blob.bak`);
+    fs.writeFileSync(file, JSON.stringify(next, null, 2) + '\n');
+  } catch (err) {
+    dialog.showErrorBox('Claude Blob', `Couldn't update ${file}:\n${err.message}`);
+  }
+  checkClaude();
+  if (tray) tray.setContextMenu(menu());
+  if (claudeConnected) {
+    dialog.showMessageBox({ type: 'info', title: 'Claude Blob', message: 'Connected to Claude Code',
+      detail: 'Sessions started from now on will show up on the blob. The hooks need Node.js on your PATH.' });
+  }
+}
+
+// { version, ready }: ready once the download is in place to install on quit.
+let update = null;
+
+function startUpdates() {
+  if (!app.isPackaged) return;
+  const { autoUpdater } = require('electron-updater');
+  // Unsigned macOS builds can't install updates themselves; the menu links to the download instead.
+  autoUpdater.autoDownload = process.platform !== 'darwin';
+  const found = (ready) => ({ version }) => {
+    update = { version, ready };
+    if (tray) tray.setContextMenu(menu());
+  };
+  autoUpdater.on('update-available', found(false));
+  autoUpdater.on('update-downloaded', found(true));
+  autoUpdater.on('error', (err) => console.error(`claude-blob: update check failed: ${err.message}`));
+  const check = () => autoUpdater.checkForUpdates().catch(() => { /* offline; try again later */ });
+  check();
+  setInterval(check, 6 * 60 * 60 * 1000);
+}
+
+function updateMenu() {
+  if (update?.ready) {
+    return [{ label: `Restart to update to v${update.version}`, click: () => require('electron-updater').autoUpdater.quitAndInstall(true, true) }];
+  }
+  if (update && process.platform === 'darwin') {
+    return [{ label: `Download v${update.version}…`, click: () => shell.openExternal('https://github.com/lvanhouten/claude-blob/releases/latest') }];
+  }
+  return [];
+}
+
 function menu() {
   return Menu.buildFromTemplate([
+    ...updateMenu(),
     { label: win?.isVisible() === false ? 'Show' : 'Hide', click: toggleVisible },
     { type: 'separator' },
     { label: 'Reset position', click: () => { const p = homePosition(); place(p.x, p.y); savePosition(); } },
@@ -233,7 +308,14 @@ function menu() {
     { label: 'Color…', click: openPicker },
     { label: 'Size', submenu: SCALES.map(([scale, label]) => ({ label, type: 'radio', checked: settings.scale === scale, click: () => setScale(scale) })) },
     { label: 'Animation gallery', click: openGallery },
+    { label: 'Connect to Claude Code', type: 'checkbox', checked: claudeConnected, click: toggleClaude },
+    // Linux has no login-item API, and a dev run would register the bare electron binary.
+    ...(app.isPackaged && process.platform !== 'linux' ? [{
+      label: 'Start at login', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin,
+      click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked }),
+    }] : []),
     { type: 'separator' },
+    { label: `Version ${app.getVersion()}`, enabled: false },
     { label: 'Quit', click: () => app.quit() },
   ]);
 }
@@ -310,6 +392,9 @@ ipcMain.on('set-color', (_e, pick, done) => setColor(pick, done));
 ipcMain.on('context-menu',() => menu().popup({ window: win }));
 
 app.whenReady().then(() => {
+  app.dock?.hide(); // a desktop pet, not a windowed app
+  installHook();
+  checkClaude();
   createWindow();
   startServer();
   // Electron swaps in tray@2x.png on high-DPI screens.
@@ -317,6 +402,7 @@ app.whenReady().then(() => {
   tray.setToolTip('Claude Blob');
   tray.setContextMenu(menu());
   tray.on('click', toggleVisible);
+  startUpdates();
 });
 
 app.on('window-all-closed', () => app.quit());

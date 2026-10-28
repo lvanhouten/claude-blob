@@ -86,6 +86,8 @@ def main():
     # Electron picks tray@2x.png on high-DPI screens.
     scaled[16].save(ASSETS / "tray.png")
     scaled[32].save(ASSETS / "tray@2x.png")
+    # electron-builder makes the macOS and Linux icons from this one.
+    icon.resize((512, 512), Image.LANCZOS).save(ASSETS / "icon.png")
     print(f"wrote {', '.join(p.name for p in sorted(ASSETS.iterdir()))}")
 
 

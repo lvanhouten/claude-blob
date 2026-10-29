@@ -1,6 +1,6 @@
 {
   "name": "claude-blob",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A little desktop blob that reacts to Claude Code hooks",
   "main": "main.js",
   "scripts": {

@@ -72,25 +72,33 @@ export function spawnMinion(session) {
   gestures.push({ kind: 'bud', session });
 }
 
+// Every helper, oldest first: those already made, then buds still to come
+// (including the one playing, until it makes its helper).
+const helpers = () => [...minions, ...[gesture, ...gestures].filter((g) => g?.kind === 'bud' && !g.minion)];
+
 // The Agent call that buds a helper doesn't know the subagent's id yet, so the
 // first event carrying a new id claims the session's oldest unclaimed helper.
 export function bindMinion(session, agent) {
-  const helpers = [...minions, ...gestures.filter((g) => g.kind === 'bud' && !g.minion)];
-  if (helpers.some((x) => x.agent === agent)) return;
-  const free = helpers.find((x) => x.session === session && !x.agent && !x.leaving);
+  const all = helpers();
+  if (all.some((x) => x.agent === agent)) return;
+  const free = all.find((x) => x.session === session && !x.agent && !x.done);
   if (free) free.agent = agent;
 }
 
-// Retires the helper bound to `agent`, else the session's oldest unclaimed one.
+// A subagent can finish at any point in its helper's life, even before it buds.
+// A bud still waiting its turn is dropped; any other helper is caught once it
+// reaches the ring (see updateMinions).
+function finish(x) {
+  x.done = true;
+  const queued = gestures.indexOf(x);
+  if (queued >= 0) gestures.splice(queued, 1);
+}
+
+// Finishes the helper bound to `agent`, else the session's oldest unclaimed one.
 export function retireMinion(session, agent) {
-  const waiting = (x) => !x.leaving && (x.phase === 'in' || x.phase === 'orbit');
-  const m = (agent && minions.find((x) => waiting(x) && x.agent === agent))
-    ?? minions.find((x) => waiting(x) && x.session === session && !x.agent)
-    ?? minions.find((x) => waiting(x) && (!session || x.session === session))
-    ?? minions.find(waiting);
-  if (!m) return;
-  m.leaving = true;
-  gestures.push({ kind: 'catch', minion: m });
+  const open = helpers().filter((x) => !x.done);
+  const x = (agent && open.find((h) => h.agent === agent)) ?? open.find((h) => h.session === session && !h.agent);
+  if (x) finish(x);
 }
 
 // A point at angle a on the ring scaled by r (1 = on the ring), at height y.
@@ -151,7 +159,7 @@ export function updateGesture(step) {
       gestureFx.look = { x: g.side * 0.9, y: 0.1 };
       if (!g.minion) {
         g.minion = {
-          session: g.session, agent: g.agent, group: makeMinion(), phase: 'budding', t: 0,
+          session: g.session, agent: g.agent, done: g.done, group: makeMinion(), phase: 'budding', t: 0,
           born: performance.now(), angle: orbitAngle, bob: Math.random() * Math.PI * 2,
         };
         minions.push(g.minion);
@@ -227,7 +235,11 @@ export function updateMinions(step, now, time) {
   const orbiting = minions.filter((m) => m.phase === 'in' || m.phase === 'orbit');
   for (const m of minions) {
     m.t += step;
-    if (!m.leaving && now - m.born > MINION.maxAgeMs) retireMinion(m.session, m.agent); // never heard back
+    if (now - m.born > MINION.maxAgeMs) m.done = true; // never heard back
+    if (m.done && !m.leaving && (m.phase === 'in' || m.phase === 'orbit')) {
+      m.leaving = true;
+      gestures.push({ kind: 'catch', minion: m });
+    }
     if (m.phase === 'budding' || m.phase === 'caught') continue; // the gesture moves these
     // Spread evenly around the ring, sliding over as helpers come and go.
     const i = orbiting.indexOf(m);
@@ -265,5 +277,5 @@ export function updateMinions(step, now, time) {
 }
 
 export function retireSessionMinions(session) {
-  for (const m of minions) if (m.session === session) retireMinion(session);
+  for (const x of helpers()) if (x.session === session && !x.done) finish(x);
 }

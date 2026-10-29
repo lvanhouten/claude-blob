@@ -102,7 +102,8 @@ export function trackCircles(now) {
   }
   circling.last = a;
   if (Math.abs(circling.total) >= Math.PI * 2 * DIZZY_TURNS) {
-    spin.dir = Math.sign(circling.total);
+    // Like a turntable seen from above: a clockwise circle swings his face left.
+    spin.dir = -Math.sign(circling.total);
     circling.total = 0;
     setState('dizzy');
   }

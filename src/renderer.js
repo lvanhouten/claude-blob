@@ -233,8 +233,8 @@ function frame(now) {
   if (spin.t < 1) spin.t = Math.min(1, spin.t + step / spin.secs);
   const spinAngle = spin.t < 1 ? (1 - Math.cos(spin.t * Math.PI)) / 2 * Math.PI * 2 * spin.turns * spin.dir : 0;
   const rock = jiggle.now * 2.2 * Math.sin(jiggle.t * 11);
-  // Woozy wobble and eye-rolling turn the same way he spun.
-  const woozy = -time * spin.dir;
+  // Woozy wobble and eye-rolling circle the way the cursor did.
+  const woozy = time * spin.dir;
   // While he's at a sheet or terminal, or thinking, only his eyes move; his body
   // stays still.
   const turnToLook = 1 - 0.85 * Math.max(P.scan, P.write, P.term, P.web, P.ponder);
